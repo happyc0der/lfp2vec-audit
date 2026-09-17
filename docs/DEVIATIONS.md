@@ -43,14 +43,24 @@ published numbers therefore cannot be reproduced, only re-derived under a stated
 
 **Upstream:** `data/Allen/data_download.py` uses `EcephysProjectCache.from_warehouse`.
 
-**Here:** the plan is to read per-probe LFP NWB files from the public S3 bucket with `h5py`.
+**Here:** per-probe LFP files are read straight from the public S3 bucket with `h5py`.
 
 **Why:** AllenSDK pins an old NumPy/pandas stack that conflicts with a current torch install.
 Keeping it out of the environment avoids a dependency resolution that would otherwise force
 either two environments or downgraded core libraries.
 
-**Status:** to be confirmed in Stage 1. If direct NWB reading proves unreliable, the fallback is
-an isolated `uv run --with allensdk` preprocessing step, and this entry will be updated.
+**Status:** confirmed working in Stage 1. The files are ordinary HDF5 and the two things needed
+from them, an LFP dataset and an electrode table carrying CCF acronyms, are read directly. One
+substantive difference follows: AllenSDK's `get_lfp` masks samples inside intervals the session
+marks invalid, which this reader does not do. For the sessions used here the only such interval
+is tagged as a stimulus event rather than a probe fault, so AllenSDK would not have masked it
+either.
+
+Two further details were established by reading the files rather than the documentation. The
+sampling rate recorded in each probe group's own metadata attribute is wrong, reading half the
+true value, so the rate is measured from the timestamps instead. And channels in the released
+LFP are every fourth electrode, giving roughly 90 per probe at 40 micrometre spacing, against
+384 at 20 micrometres for IBL.
 
 ## D5 — Private datasets are out of scope
 
@@ -67,12 +77,51 @@ trial becomes 48 000 samples on disk.
 16 kHz inside the dataset. This is numerically equivalent for the model input and roughly
 twentyfold smaller on disk, which is what makes a laptop-plus-Colab workflow practical.
 
-## D7 — Region label set
+## D7 — Region label set and how acronyms are matched
 
 Both follow the upstream aggregation: the visual-cortex acronym family collapses to `VIS`, the
 four hippocampal subfields stay separate, and everything else is dropped. The paper's text also
 mentions LP and PO for IBL; the upstream code targets the five-way set used here. The dataset
 card reports how many channels are discarded as `UNK` so the reader can see the cost.
+
+The matching rule differs. Upstream tests `region in label`, a substring search, for IBL and an
+exact match plus a channel-id range slice for Allen. Substring matching is loose enough to
+mislabel: any acronym merely containing `DG` or `VIS` is swept in. The id-range slice is looser
+still, selecting every channel whose id falls between a region's lowest and highest, so channels
+belonging to other structures are pulled in wherever a region is anatomically interrupted.
+
+Here both datasets use the same prefix rule: an acronym is assigned to a hippocampal subfield
+when it begins with that subfield's name, which captures the sublayer notation (`CA1sp`,
+`CA1slm`, `DG-mo`) without capturing unrelated structures, and to `VIS` when stripping any
+cortical layer suffix leaves a known visual area. This is stricter than upstream and will
+produce slightly different channel sets.
+
+## D8 — Empty Allen probe files
+
+Three probe files in the sessions used here advertise LFP data and contain nothing but zeros:
+`729445654` and `729445656` in session 719161530. They are the only probes in that session
+carrying CA2 and CA3, which is why a second session, 798911424, is included.
+
+Upstream never confronts this: its chunking loop discards all-zero trials silently, so those
+probes simply contributed nothing. Here they are detected at the boundary, by file size and then
+verified by sampling the data, and recorded in the dataset card as skipped with the reason. A
+store built without that check would be full of well-formed chunks carrying no signal.
+
+## D9 — High-pass corner: 0.5 Hz in the code, 2 Hz in the paper
+
+The paper describes destriping as applying a 2 Hz high-pass. The library function the upstream
+code calls defaults to a 0.5 to 300 Hz band-pass, and upstream does not override it. The code is
+followed here. The difference affects only the lowest part of the delta band.
+
+## D10 — Channels excluded for signal quality
+
+Upstream keeps every channel after destriping, including ones the destriper itself flagged as
+dead, noisy or outside the brain and then reconstructed by interpolating from neighbours. Those
+channels carry a spatially smoothed copy of their neighbours' signal, which for a region
+classifier is close to duplicated data with a label attached.
+
+Here they are dropped, and the count is reported per probe in the dataset card. For Allen the
+equivalent is the `valid_data` column, also dropped.
 
 ## Known upstream issues observed while reading the code
 

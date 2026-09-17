@@ -35,6 +35,23 @@ Decided what counts as a result worth reporting and what is an artefact.
   reproducing them with a plain finite matrix product. Filtered with that reasoning recorded
   rather than suppressed blindly.
 
+**Stage 1 additions.** The data layer is where a coding agent is least trustworthy, because
+almost every mistake it can make produces numbers rather than errors. What I checked myself:
+
+- That the byte prefix of an IBL recording really is a valid recording, by reading mtscomp's own
+  chop routine and confirming which header fields it rewrites and why, rather than assuming a
+  truncated file would simply work.
+- That the electrode table is in raw channel order, since anatomy is joined to data by position
+  and a reordered table would mislabel every channel while looking healthy. The first version of
+  that check was wrong, and I kept it rather than deleting it once I understood the real
+  geometry.
+- That the Allen reader's output orientation, units and window offsets match the file, by
+  comparing against the raw dataset directly in a test rather than trusting the shapes.
+- That two probe files advertising LFP data contain only zeros, by counting non-zero samples
+  across the whole file, before writing a size-based screen that skips them.
+- That reading one channel at a time was slow for a structural reason, by measuring both access
+  patterns against the real remote file instead of reasoning from the chunk shape.
+
 **Standing rule for this project.** No number enters the README or the note without a results
 file behind it, and no experiment runs without passing the gates in `make gate`. Generated code
 is treated as a draft by a fast, careless collaborator: useful, and not to be trusted about

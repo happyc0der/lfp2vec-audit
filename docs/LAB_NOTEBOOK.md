@@ -126,3 +126,72 @@ end-to-end smoke run all pass on a clean ubuntu checkout as well as locally on M
   insertions, or is a whole-file download forced?
 - What throughput does wav2vec2-base reach on MPS at 48 000 samples per item? This determines
   the Stage 3 subsample size, and must be measured before any long run is launched.
+
+---
+
+## 2026-09-17 (later) — Stage 1: the data layer
+
+Goal: turn the two public datasets into chunk stores, with enough recorded about them that a
+reader can tell what they contain and what was thrown away.
+
+### Decisions made from reading, before writing code
+
+Three research passes over the upstream repository, the IBL access stack and the Allen file
+format settled the design. The findings that changed it:
+
+- **The upstream window and the Allen chunk spec agree exactly.** IBL reads seconds 0 to 500;
+  Allen takes 100 chunks of 3 seconds starting at 200 s, which ends at 500 s. One spec therefore
+  covers both. Recorded as an inference, since the IBL chunk parameters are command-line
+  arguments whose values appear nowhere in the repository.
+- **`Streamer`, the documented way to read part of an IBL file, lives inside the full `ibllib`
+  package**, which pulls in PyQt5, OpenCV, numba, phylib and more. Not worth it for one class:
+  the same result comes from a byte-range fetch plus a truncated header, using only `ONE-api`,
+  `ibl-neuropixel` and `iblatlas`.
+- **Two Allen probe files in session 719161530 are entirely zeros** while reporting that they
+  have LFP data, and they are the only probes in that session carrying CA2 and CA3. Session
+  798911424 was added for that coverage; all six of its probes are live.
+
+### What the prefix trick rests on
+
+mtscomp stores fixed one-second chunks in order, with a sidecar listing each chunk's byte
+offset. So the first N seconds are literally the first `chunk_offsets[N]` bytes, and a header
+truncated to those chunks makes the prefix a complete recording. mtscomp implements exactly this
+for local files as `Reader.chop`; reading its source fixed the details worth copying, in
+particular that both whole-file SHA-1 digests must be nulled because they describe bytes that
+are no longer present. The reader tolerates a null digest with a warning.
+
+Result: 329 MB per insertion instead of 3.2 GB, about a tenth.
+
+### Things that went wrong
+
+- **A prefix request downloaded the whole file.** The first `download` only attached a range
+  header when resuming a partial file; on a fresh download it fetched everything and compared
+  sizes at the end. Caught by watching the cache directory grow past 1.3 GB during what should
+  have been a 3 MB fetch. Every request now carries an explicit range whenever the caller wants
+  less than the whole file, and a server that ignores the range is an error rather than a
+  silent multi-gigabyte download. There is a regression test.
+- **The geometry assertion fired on correct data.** It expected the axial coordinates of a
+  Neuropixels 1.0 probe to start at zero; the released tables start at 20 micrometres. The check
+  now tests the pattern that actually matters (two channels per row, exactly 20 micrometre
+  pitch, ascending, four staggered lateral columns) instead of hard-coded values. Worth keeping
+  rather than deleting: if this table were ever reordered, every label would attach to the wrong
+  channel, and nothing downstream would notice.
+- **Reading Allen one channel at a time was 230 times too slow.** The files are chunked as one
+  channel by 37.8 seconds, which suggests reading per channel. Measured over a remote 30-second
+  window: 12 s for a single channel, 5 s for all 94 together. Consecutive chunks on disk are
+  neighbouring channels of the same time block, so a time slab is nearly contiguous while one
+  channel is a scatter of distant reads. Reading slabs.
+
+  ```
+  data.chunks = (47193, 1)   # one channel x 37.8 s
+  30 s, one channel      : 12.2 s
+  30 s, all 94 channels  :  5.0 s
+  ```
+
+### Deliberate departures from upstream, all in DEVIATIONS.md
+
+Label matching is stricter (prefix rather than substring, and no channel-id range slice, D7).
+Channels the destriper flagged as dead or noisy are dropped rather than kept as interpolated
+copies of their neighbours (D10). Empty probe files are detected and recorded rather than
+silently contributing nothing (D8).
+

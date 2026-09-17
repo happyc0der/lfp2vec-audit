@@ -4,7 +4,7 @@
 
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
-> **Status: Stage 0 — scaffold.** The offline core (chunking, labels, splits, features, metrics, manifests) is implemented and tested. No real data has been processed and no model has been trained yet. Every claim below that is not yet measured is marked *planned*.
+> **Status: Stage 1 — data layer.** Both public datasets are read into a common chunk format, with group-aware splits and a dataset card. No model has been trained yet. Every claim below that is not yet measured is marked *planned*.
 
 ## What LFP2Vec is
 
@@ -31,7 +31,7 @@ This repository measures both gaps on public data:
 
 | Stage | Experiment | Status |
 |---|---|---|
-| 1 | IBL and Allen data layer, group-aware splits, leakage verifier | planned |
+| 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
 | 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | planned |
 | 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | planned |
 | 4 | Temperature scaling, band-stop and phase-randomisation ablations, band attribution | planned |
@@ -48,14 +48,27 @@ make smoke    # end-to-end pipeline run with planted ground truth
 
 `make smoke` generates a synthetic dataset with known spectral signatures per region, builds a group-aware split, verifies it for leakage, fits a band-power classifier, and asserts two gates: the classifier beats chance, and the same classifier trained on permuted labels does not. Every real experiment must pass this first.
 
+Building the real datasets, which does touch the network:
+
+```bash
+make data-ibl      # seven insertions, ~2.3 GB fetched
+make data-allen    # two sessions, read over HTTP ranges
+make splits        # write and verify every split
+make real-smoke    # the same gates, on real data
+```
+
 ## Data
 
-| Source | Access | Labels | Size |
+| Source | Access | Labels | Fetched |
 |---|---|---|---|
-| [IBL](https://docs.internationalbrainlab.org/) Neuropixels | ONE-api against openalyx, LF band streamed | CCF acronym per channel | ~1 GB per insertion for the 500 s window |
-| [Allen Visual Coding](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html) Neuropixels | public S3 NWB | `ecephys_structure_acronym` | 0.9–2.7 GB per probe |
+| [IBL](https://docs.internationalbrainlab.org/) Neuropixels | byte prefix of the compressed LF band, via ONE-api | CCF acronym per channel, from histological alignment | ~330 MB per insertion, of 2.4–3.8 GB files |
+| [Allen Visual Coding](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html) Neuropixels | HTTP range reads of the public NWB files | `location` column of the electrode table | ~140 MB per probe, of 1.3–2.5 GB files |
 
-Raw data is never committed. Only run manifests, metrics and small prediction tables live in `results/`.
+Both are cut to the same 3-second, 1250 Hz chunks and stored as one normalised float16 array plus a parquet index. The mean and scale removed by normalisation are recorded per chunk, so the original microvolt waveform is recoverable.
+
+Neither dataset is fetched whole. The IBL recordings are compressed in one-second chunks stored in order, so the 500-second window the analysis uses is a byte prefix of the file; a truncated header describing only those chunks makes that prefix a valid standalone recording. The Allen files are read with range requests, one time slab across all channels at a time, which matches how their chunks are laid out on disk.
+
+Raw data is never committed. Only run manifests, metrics, dataset cards and inspection figures live in the repository.
 
 ## Repository layout
 

@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 CLI := .venv/bin/lfpaudit
 
-.PHONY: setup lint format test smoke gate data-ibl data-allen baselines finetune ablate figures clean
+.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke inspect baselines finetune ablate figures clean
 
 setup:                ## create the virtualenv and install the package
 	uv venv --python 3.11
@@ -28,11 +28,21 @@ gate:                 ## everything that must pass before a real training run
 	$(MAKE) test
 	$(MAKE) smoke
 
-data-ibl:
-	@echo "Stage 1 - not implemented yet"
+data-ibl:             ## fetch and chunk the seven IBL insertions
+	$(CLI) data ibl
 
-data-allen:
-	@echo "Stage 1 - not implemented yet"
+data-allen:           ## read and chunk the Allen sessions
+	$(CLI) data allen
+
+splits:               ## write and verify every split
+	$(CLI) make-splits
+
+real-smoke:           ## the smoke gates, on real data
+	$(CLI) real-smoke experiments/splits/cross_session_ibl.json
+
+inspect:              ## regenerate the per-region inspection figures
+	$(CLI) inspect data/stores/ibl
+	$(CLI) inspect data/stores/allen
 
 baselines:
 	@echo "Stage 2 - not implemented yet"
