@@ -30,7 +30,7 @@ from lfpaudit.data.manifest import RunManifest
 from lfpaudit.data.splits import Split, make_split, verify_no_leakage
 from lfpaudit.data.synthetic import SyntheticSpec, build_synthetic_store
 from lfpaudit.device import environment_summary, pick_device
-from lfpaudit.eval.metrics import chance_level_band, evaluate, expand_probabilities
+from lfpaudit.eval.metrics import chance_level_band, evaluate, expand_probabilities, softmax
 from lfpaudit.features.bandpower import band_power
 
 app = typer.Typer(add_completion=False, help="Audit tooling for LFP2Vec-style region decoding.")
@@ -700,6 +700,223 @@ def lab_discriminator(
             "which is what a representation dominated by acquisition looks like."
         )
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
+
+
+# ---------------------------------------------------------------------------------------------
+# Stage 3: the wav2vec2 fine-tune.
+# ---------------------------------------------------------------------------------------------
+
+finetune_app = typer.Typer(help="Fine-tune the audio checkpoint for region decoding.")
+app.add_typer(finetune_app, name="finetune")
+
+
+@finetune_app.command("smoke")
+def finetune_smoke(
+    device: str = typer.Option(None, help="Force a device."),
+    steps: int = typer.Option(15, help="Optimiser steps."),
+) -> None:
+    """Assert the training loop learns, before any real run is launched."""
+    from lfpaudit.models.train import smoke as run_smoke
+
+    policy = pick_device(device)
+    result = run_smoke(device=policy.device, steps=steps)
+    typer.echo(result["model"])
+    typer.echo(
+        f"loss {result['first_loss']:.4f} -> {result['last_loss']:.4f} "
+        f"over {result['steps']} steps on {result['device']}"
+    )
+    typer.secho("finetune smoke passed", fg=typer.colors.GREEN)
+
+
+def _resolve_fold(index, scheme: str, fold_name: str | None, seed: int):
+    from lfpaudit.eval.folds import build_schemes
+
+    schemes = build_schemes(index, seed=seed)
+    if scheme not in schemes:
+        raise typer.BadParameter(f"unknown scheme {scheme!r}; have {sorted(schemes)}")
+    folds = schemes[scheme]
+    if fold_name is None:
+        return folds[0]
+    for fold in folds:
+        if fold.name == fold_name:
+            return fold
+    raise typer.BadParameter(f"unknown fold {fold_name!r}; have {[f.name for f in folds]}")
+
+
+@finetune_app.command("run")
+def finetune_run(
+    scheme: str = typer.Option("cross_lab_ibl_to_allen", help="Evaluation scheme."),
+    fold: str = typer.Option(None, help="Which fold; defaults to the first."),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    out: Path = typer.Option(Path("results/finetune")),
+    device: str = typer.Option(None),
+    seed: int = typer.Option(0),
+    epochs: int = typer.Option(10),
+    max_per_class: int = typer.Option(6000),
+    batch_size: int = typer.Option(8),
+    lowpass: float = typer.Option(None, help="Low-pass corner in Hz for the harmonised band."),
+    permute_labels: bool = typer.Option(False, help="Shuffle training labels: a leakage check."),
+    max_rate_check: bool = typer.Option(True, help="Measure throughput before committing."),
+    budget_hours: float = typer.Option(3.0, help="Refuse to start if the estimate exceeds this."),
+) -> None:
+    """Fine-tune on one fold, scoring every target group and saving everything Stage 4 needs."""
+    from lfpaudit.eval.probe import lab_identity_auc
+    from lfpaudit.eval.runner import CLASS_VIEWS
+    from lfpaudit.models.dataset import ChunkDataset, balanced_sample, class_counts
+    from lfpaudit.models.lfp2vec_lite import build_model
+    from lfpaudit.models.train import (
+        FineTuneConfig,
+        embed,
+        measure_throughput,
+        predict,
+        train,
+    )
+
+    set_seed(seed)
+    policy = pick_device(device)
+    corpus = _load_corpus(ibl, allen)
+    index = corpus.index
+    labels_all = index["region"].map(REGION_TO_INDEX).to_numpy()
+    positions = {int(c): i for i, c in enumerate(index["chunk_id"])}
+
+    chosen = _resolve_fold(index, scheme, fold, seed)
+    sizes = verify_no_leakage(chosen.split, index)
+    typer.echo(f"{scheme} / fold {chosen.name}: {sizes}")
+
+    config = FineTuneConfig(
+        epochs=epochs,
+        max_per_class=max_per_class,
+        batch_size=batch_size,
+        lowpass_hz=lowpass,
+        seed=seed,
+    )
+
+    def rows_for(ids):
+        return np.array([positions[i] for i in ids], dtype=np.int64)
+
+    train_rows = rows_for(chosen.split.train)
+    keep = balanced_sample(labels_all[train_rows], train_rows, config.max_per_class, seed=seed)
+    train_rows = train_rows[keep]
+    val_rows = rows_for(chosen.split.val)
+    if len(val_rows) > config.max_val_chunks:
+        val_rows = np.random.default_rng(seed).choice(
+            val_rows, config.max_val_chunks, replace=False
+        )
+    test_rows = rows_for(chosen.split.test)
+
+    train_y = labels_all[train_rows]
+    if permute_labels:
+        train_y = np.random.default_rng(seed).permutation(train_y)
+    typer.echo(f"train classes: {class_counts(train_y, list(REGIONS))}")
+
+    ids = index["chunk_id"].to_numpy()
+    make = lambda rows, y: ChunkDataset(  # noqa: E731
+        corpus.take, ids[rows], y, fs=corpus.fs, lowpass_hz=config.lowpass_hz
+    )
+    train_set = make(train_rows, train_y)
+    val_set = make(val_rows, labels_all[val_rows])
+    test_set = make(test_rows, labels_all[test_rows])
+
+    model, info = build_model(
+        num_labels=len(REGIONS), freeze_feature_encoder=config.freeze_feature_encoder
+    )
+    typer.echo(info.describe())
+
+    # Gate: size the run from measured throughput rather than an estimate, and refuse to start a
+    # run that will not fit the budget. Discovering that at hour four is the failure this avoids.
+    if max_rate_check:
+        measured = measure_throughput(model, train_set, policy.device, config, steps=12)
+        rate = measured["chunks_per_second"]
+        hours = (len(train_rows) * config.epochs) / max(rate, 1e-9) / 3600
+        typer.echo(f"measured {rate:.1f} chunks/s -> {hours:.2f} h for {config.epochs} epochs")
+        if hours > budget_hours:
+            typer.secho(
+                f"GATE FAILED: estimated {hours:.2f} h exceeds the {budget_hours:.1f} h budget. "
+                "Reduce --epochs or --max-per-class.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    tag = f"{scheme}__{chosen.name}__seed{seed}"
+    if config.lowpass_hz:
+        tag += f"__lp{int(config.lowpass_hz)}"
+    if permute_labels:
+        tag += "__permuted"
+
+    manifest = RunManifest.create(
+        experiment=f"finetune_{tag}",
+        seed=seed,
+        device=policy.device,
+        config={
+            "scheme": scheme,
+            "fold": chosen.name,
+            "permuted": permute_labels,
+            "model": asdict(info) if hasattr(info, "__dataclass_fields__") else str(info),
+            "train": asdict(config),
+            "n_train": int(len(train_rows)),
+            "n_val": int(len(val_rows)),
+            "n_test": int(len(test_rows)),
+        },
+        data_dir=ibl,
+    )
+    run_dir = Path(out) / tag / manifest.run_id
+    manifest.write(run_dir)
+
+    history = train(model, train_set, val_set, config, policy.device, run_dir)
+
+    logits, test_y = predict(model, test_set, policy.device, config.batch_size)
+    probs = softmax(logits)
+    metrics = {}
+    for view, allowed in CLASS_VIEWS.items():
+        keep_view = np.isin(test_y, [REGION_TO_INDEX[n] for n in allowed])
+        if not keep_view.any():
+            continue
+        report = evaluate(probs[keep_view], test_y[keep_view])
+        metrics[view] = report.to_dict()
+        typer.echo(f"{view}: {report.summary_line()}")
+
+    frame = pd.DataFrame({"chunk_id": ids[test_rows], "label": test_y})
+    for i, region in enumerate(REGIONS):
+        frame[f"logit_{region}"] = logits[:, i].astype(np.float32)
+    frame.to_parquet(run_dir / "predictions.parquet", index=False)
+
+    # The other half of the audit: does fine-tuning remove the acquisition structure that made
+    # the frozen representation useless across labs?
+    rng = np.random.default_rng(seed)
+    probe_rows = rng.choice(len(index), size=min(6000, len(index)), replace=False)
+    probe_set = ChunkDataset(
+        corpus.take,
+        ids[probe_rows],
+        labels_all[probe_rows],
+        fs=corpus.fs,
+        lowpass_hz=config.lowpass_hz,
+    )
+    embeddings = embed(model, probe_set, policy.device, config.batch_size)
+    probe = lab_identity_auc(
+        embeddings,
+        index.iloc[probe_rows]["group"],
+        index.iloc[probe_rows]["dataset"],
+        seed=seed,
+    )
+    typer.echo(probe.summary_line("lab identity after fine-tuning"))
+    probe.folds.to_csv(run_dir / "lab_identity.csv", index=False)
+    np.save(run_dir / "probe_embeddings.npy", embeddings.astype(np.float32))
+
+    (run_dir / "metrics.json").write_text(
+        json.dumps(
+            {
+                "metrics": metrics,
+                "lab_identity_auc": probe.auc,
+                "epochs_run": len(history),
+                "best_val_balanced_accuracy": max(h.val_balanced_accuracy for h in history),
+            },
+            indent=2,
+        )
+    )
+    manifest.finish(run_dir, status="ok")
+    typer.secho(f"wrote {run_dir}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover
