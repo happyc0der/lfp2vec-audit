@@ -604,47 +604,92 @@ def lab_discriminator(
     This turns DEVIATIONS D11 from an observation into a number. If the full band separates the
     two datasets almost perfectly and a band restricted below 100 Hz does not, the difference
     bounds how much of any cross-lab result could have been filtering rather than anatomy.
+
+    Each fold holds out one probe from *each* dataset. Holding out a single group would leave a
+    test set containing only one label, where accuracy and area under the curve are both
+    meaningless, and the question is precisely whether the separation generalises to probes the
+    classifier has not seen.
     """
-    from lfpaudit.eval.folds import leave_one_group_out
-    from lfpaudit.eval.metrics import evaluate
+    from sklearn.metrics import roc_auc_score
+
+    from lfpaudit.data.splits import Split, verify_no_leakage
     from lfpaudit.models.baselines import fit_predict
 
     set_seed(seed)
     corpus = _load_corpus(ibl, allen)
     index = corpus.index
     positions = {int(cid): i for i, cid in enumerate(index["chunk_id"])}
-    # The label is the dataset, not the region.
     dataset_label = (index["dataset"] == "allen").astype(int).to_numpy()
+
+    by_dataset = {
+        name: sorted(index[index["dataset"] == name]["group"].astype(str).unique())
+        for name in ("ibl", "allen")
+    }
+    n_folds = max(len(v) for v in by_dataset.values())
+    all_groups = index["group"].astype(str)
+
+    def select(names: list[str]) -> list[int]:
+        return sorted(int(i) for i in index.loc[all_groups.isin(names), "chunk_id"])
+
+    def rotate(names: list[str], offset: int) -> tuple[str, str]:
+        """The test group for this fold, and a different one held out for validation."""
+        return names[offset % len(names)], names[(offset + 1) % len(names)]
 
     rows = []
     for name in ("bandpower_full", "bandpower_clean"):
         table = _build_feature_table(corpus, name, cache, None, rebuild=False)
-        for fold in leave_one_group_out(index, dataset=None, seed=seed):
-            train = np.array([positions[i] for i in fold.split.train], dtype=np.int64)
-            test = np.array([positions[i] for i in fold.split.test], dtype=np.int64)
-            if len(np.unique(dataset_label[train])) < 2:
-                continue
+        for fold_index in range(n_folds):
+            test_ibl, val_ibl = rotate(by_dataset["ibl"], fold_index)
+            test_allen, val_allen = rotate(by_dataset["allen"], fold_index)
+            test_groups = sorted({test_ibl, test_allen})
+            val_groups = sorted({val_ibl, val_allen} - set(test_groups))
+
+            train_groups = sorted(set(all_groups) - set(test_groups) - set(val_groups))
+            split = Split(
+                kind="cross_session",
+                seed=seed,
+                train=select(train_groups),
+                val=select(val_groups),
+                test=select(test_groups),
+                train_groups=train_groups,
+                val_groups=val_groups,
+                test_groups=test_groups,
+            )
+            verify_no_leakage(split, index)
+
+            train = np.array([positions[i] for i in split.train], dtype=np.int64)
+            test = np.array([positions[i] for i in split.test], dtype=np.int64)
             probs = fit_predict(
                 "logreg", table[train], dataset_label[train], table[test], seed=seed, n_classes=2
             )
-            report = evaluate(probs, dataset_label[test], class_names=["ibl", "allen"])
+            predicted = probs.argmax(axis=1)
+            truth = dataset_label[test]
+            per_class = [float((predicted[truth == c] == c).mean()) for c in (0, 1)]
             rows.append(
                 {
                     "features": name,
-                    "fold": fold.name,
+                    "held_out_ibl": test_ibl,
+                    "held_out_allen": test_allen,
                     "n_test": len(test),
-                    "balanced_accuracy": report.balanced_accuracy,
-                    "accuracy": report.accuracy,
-                    "chance": report.chance,
+                    "accuracy": float((predicted == truth).mean()),
+                    "balanced_accuracy": float(np.mean(per_class)),
+                    "auc": float(roc_auc_score(truth, probs[:, 1])),
                 }
             )
 
     frame = pd.DataFrame(rows)
     Path(out).mkdir(parents=True, exist_ok=True)
     frame.to_csv(Path(out) / "folds.csv", index=False)
-    summary = frame.groupby("features")["accuracy"].agg(["mean", "std", "count"])
+    summary = frame.groupby("features")[["balanced_accuracy", "auc"]].agg(["mean", "std"]).round(4)
     typer.echo(summary.to_string())
     summary.to_csv(Path(out) / "summary.csv")
+
+    full = frame[frame["features"] == "bandpower_full"]["auc"].mean()
+    clean = frame[frame["features"] == "bandpower_clean"]["auc"].mean()
+    typer.echo(
+        f"\nArea under the curve falls from {full:.3f} to {clean:.3f} when the ripple band is "
+        f"removed: a drop of {full - clean:.3f}."
+    )
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 

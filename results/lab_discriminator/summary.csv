@@ -1,0 +1,5 @@
+,balanced_accuracy,balanced_accuracy,auc,auc
+,mean,std,mean,std
+features,,,,
+bandpower_clean,0.6601,0.0728,0.729,0.1062
+bandpower_full,0.7413,0.0581,0.8373,0.0775
