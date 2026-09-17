@@ -4,6 +4,7 @@ from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from lfpaudit.eval.metrics import (
     brier_score,
+    chance_level_band,
     evaluate,
     expected_calibration_error,
     negative_log_likelihood,
@@ -88,3 +89,39 @@ def test_confusion_matrix_is_square_and_totals_match():
     assert matrix.shape == (5, 5)
     assert matrix.sum() == 50
     assert set(report.per_class_recall) == set(report.class_names)
+
+
+def test_noise_band_shrinks_as_the_test_set_grows():
+    """A fixed threshold cannot serve both a tiny and a large test set; this scales."""
+    small = chance_level_band(np.repeat(np.arange(5), 8), n_classes=5)
+    large = chance_level_band(np.repeat(np.arange(5), 8000), n_classes=5)
+    assert small > large
+    assert large < 0.01
+
+
+def test_noise_band_is_dominated_by_the_rarest_class():
+    """CA2 appears on a handful of channels, so it sets how noisy the average recall is."""
+    balanced = chance_level_band(np.repeat(np.arange(5), 400), n_classes=5)
+    lopsided = chance_level_band(
+        np.concatenate([np.repeat(np.arange(4), 400), np.zeros(3) + 4]).astype(int), n_classes=5
+    )
+    assert lopsided > 5 * balanced
+
+
+def test_noise_band_matches_the_closed_form():
+    labels = np.repeat(np.arange(4), 100)
+    expected = 3.0 * float(np.sqrt(4 * (0.25 / 100)) / 4)
+    assert chance_level_band(labels, n_classes=4) == pytest.approx(expected)
+
+
+def test_noise_band_ignores_absent_classes():
+    """A class with no test samples contributes no recall, so it must not widen the band."""
+    labels = np.repeat(np.arange(3), 50)
+    assert chance_level_band(labels, n_classes=5) == pytest.approx(
+        chance_level_band(labels, n_classes=3)
+    )
+
+
+def test_noise_band_rejects_empty_labels():
+    with pytest.raises(ValueError, match="no labelled samples"):
+        chance_level_band(np.array([], dtype=int), n_classes=5)

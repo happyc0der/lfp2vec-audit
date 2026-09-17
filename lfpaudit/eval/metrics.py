@@ -149,6 +149,27 @@ class ClassificationReport:
         )
 
 
+def chance_level_band(labels: np.ndarray, n_classes: int, sigmas: float = 3.0) -> float:
+    """How far above chance a balanced accuracy can sit before it stops being noise.
+
+    Balanced accuracy averages per-class recall, so a class with few test samples contributes a
+    noisy term regardless of how much data the other classes have. Under the null each recall is
+    a binomial proportion whose variance is at most ``0.25 / n_c``, giving the average a standard
+    error of ``sqrt(sum(0.25 / n_c)) / K``. The returned value is ``sigmas`` of those.
+
+    This exists because a fixed threshold cannot serve both a permutation control on forty test
+    chunks and one on forty thousand: the first is noisy enough to clear any tight bound by
+    chance, and the second would sail under a loose one while genuinely leaking.
+    """
+    labels = np.asarray(labels, dtype=np.int64)
+    counts = np.bincount(labels, minlength=n_classes)
+    present = counts[counts > 0]
+    if not len(present):
+        raise ValueError("no labelled samples")
+    standard_error = float(np.sqrt(np.sum(0.25 / present)) / len(present))
+    return sigmas * standard_error
+
+
 def evaluate(
     probs: np.ndarray,
     labels: np.ndarray,

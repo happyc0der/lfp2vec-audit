@@ -29,7 +29,7 @@ from lfpaudit.data.manifest import RunManifest
 from lfpaudit.data.splits import Split, make_split, verify_no_leakage
 from lfpaudit.data.synthetic import SyntheticSpec, build_synthetic_store
 from lfpaudit.device import environment_summary, pick_device
-from lfpaudit.eval.metrics import evaluate
+from lfpaudit.eval.metrics import chance_level_band, evaluate
 from lfpaudit.features.bandpower import band_power
 
 app = typer.Typer(add_completion=False, help="Audit tooling for LFP2Vec-style region decoding.")
@@ -335,15 +335,29 @@ def real_smoke(
     typer.echo(f"per-class recall: {report.per_class_recall}")
 
     chance = 1.0 / len(report.class_names)
+    # Scaled to the test set rather than fixed, so the same gate is meaningful whether the split
+    # leaves forty test chunks or forty thousand.
+    band = chance_level_band(test_y, len(report.class_names))
+    typer.echo(f"chance {chance:.3f}, noise band +/-{band:.3f}")
+
     failures = []
-    if report.balanced_accuracy <= chance + 0.05:
-        failures.append(f"balanced accuracy {report.balanced_accuracy:.3f} is at chance")
-    if control.balanced_accuracy > chance + 0.10:
-        failures.append(f"permutation control {control.balanced_accuracy:.3f} is above chance")
+    if report.balanced_accuracy <= chance + band:
+        failures.append(
+            f"balanced accuracy {report.balanced_accuracy:.3f} is within noise of chance"
+        )
+    if control.balanced_accuracy > chance + band:
+        failures.append(
+            f"permutation control {control.balanced_accuracy:.3f} is above chance + {band:.3f}"
+        )
 
     (run_dir / "metrics.json").write_text(
         json.dumps(
-            {"model": report.to_dict(), "permutation_control": control.to_dict(), "chance": chance},
+            {
+                "model": report.to_dict(),
+                "permutation_control": control.to_dict(),
+                "chance": chance,
+                "noise_band": band,
+            },
             indent=2,
         )
     )
