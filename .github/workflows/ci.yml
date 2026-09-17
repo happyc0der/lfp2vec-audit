@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the package
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check lfpaudit tests
+
+      - name: Unit tests
+        # The suite is synthetic-only by construction; nothing here reaches the network.
+        run: pytest -q -m "not slow"
+
+      - name: End-to-end smoke run
+        run: lfpaudit smoke --device cpu

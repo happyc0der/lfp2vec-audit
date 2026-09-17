@@ -1,0 +1,24 @@
+# data and heavy artefacts
+data/
+*.nwb
+*.cbin
+*.ch
+*.meta
+*.npy.gz
+*.memmap
+
+# environments
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# run outputs that are too big to commit (metrics.json/manifest.json are kept)
+results/**/*.parquet
+results/**/*.npy
+wandb/
+
+# os
+.DS_Store

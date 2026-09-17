@@ -1,0 +1,15 @@
+# The gate every real run must pass first: synthetic data with a planted answer.
+name: smoke
+notes: >
+  Exercises chunking, the chunk store, group-aware splitting, the leakage verifier, band-power
+  features, the metric suite and the manifest writer. Asserts that a classifier beats chance on
+  planted signal and that the same classifier on permuted labels does not.
+data:
+  fs: 1250.0
+  window_s: 3.0
+  chunks_per_channel: 8
+split:
+  kind: cross_session
+  seed: 0
+train:
+  seed: 0
