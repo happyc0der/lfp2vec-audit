@@ -1,0 +1,41 @@
+{
+  "config": {
+    "spec": {
+      "channels_per_session": 10,
+      "chunks_per_channel": 8,
+      "datasets": [
+        "synthA",
+        "synthB"
+      ],
+      "fs": 1250.0,
+      "seed": 0,
+      "sessions_per_dataset": 3,
+      "window_s": 3.0
+    },
+    "split": "cross_session"
+  },
+  "data_hashes": {
+    "chunks.f16": "a261443f41648ff388cce6eaee12cab2f0b03ebb80c93e2bafbe532d9c55f9b1",
+    "index.parquet": "580fdf46cc8ff1ac16d4ab7464772c11dbdfcb7cffd801d073ad33a941bb8066",
+    "store.json": "02277481b1960bc5c5c390e95508b968526992123d0f98f2b1d78a239c3fccf7"
+  },
+  "device": "cpu",
+  "environment": {
+    "devices": "mps,cpu",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python": "3.11.16",
+    "torch": "2.14.0"
+  },
+  "experiment": "smoke",
+  "finished_at": "2026-09-17T02:03:05+00:00",
+  "git": {
+    "branch": "main",
+    "commit": "cb2a3f13a0be0ac42e1a9c70ad2fa54487300ca5",
+    "dirty": "true"
+  },
+  "lfpaudit_version": "0.1.0",
+  "run_id": "20260917T020304-1e104a",
+  "seed": 0,
+  "started_at": "2026-09-17T02:03:05+00:00",
+  "status": "ok"
+}

@@ -1,5 +1,7 @@
 # data and heavy artefacts
-data/
+# Anchored to the repository root on purpose: a bare `data/` also matches the source package
+# lfpaudit/data/, which silently kept it out of the first commit.
+/data/
 *.nwb
 *.cbin
 *.ch

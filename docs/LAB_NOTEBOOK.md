@@ -84,6 +84,19 @@ splits with verifier, band-power features, metric suite, run manifests, CLI with
 - **CI could not install into the runner's system Python** (PEP 668, externally managed).
   Switched to a uv venv on PATH, which also puts CI on the same Python 3.11 as local.
 
+- **An entire subpackage was missing from the first commit.** CI failed with
+  `ModuleNotFoundError: No module named 'lfpaudit.data'` while all 90 tests passed locally. The
+  cause was a bare `data/` line in `.gitignore`, intended for the raw-data cache, which also
+  matched the source package `lfpaudit/data/`. Nothing local noticed, because pytest imports
+  from the working tree rather than from what git tracks. Anchored the rule to `/data/` and
+  added `tests/test_packaging.py`, which asserts every source file is tracked by git and every
+  submodule imports. The lesson worth keeping: a green local test run says nothing about
+  whether the repository someone else clones is complete.
+
+  A second consequence only became visible after the fix: ruff skips gitignored files by
+  default, so the same bad rule had been silently excluding that subpackage from linting and
+  formatting as well. Six style errors were sitting in it. Two failures, one root cause.
+
 ### First smoke result (synthetic data, so this is a pipeline check, not a finding)
 
 ```
