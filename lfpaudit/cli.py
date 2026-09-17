@@ -597,6 +597,9 @@ def lab_discriminator(
     allen: Path = typer.Option(Path("data/stores/allen")),
     cache: Path = typer.Option(Path("data/features")),
     out: Path = typer.Option(Path("results/lab_discriminator")),
+    which: str = typer.Option(
+        "bandpower_full,bandpower_clean,w2v2_frozen", help="Comma-separated feature sets."
+    ),
     seed: int = typer.Option(0),
 ) -> None:
     """Ask how easily a classifier can tell which lab a chunk came from.
@@ -636,7 +639,7 @@ def lab_discriminator(
         return names[offset % len(names)], names[(offset + 1) % len(names)]
 
     rows = []
-    for name in ("bandpower_full", "bandpower_clean"):
+    for name in [w.strip() for w in which.split(",") if w.strip()]:
         table = _build_feature_table(corpus, name, cache, None, rebuild=False)
         for fold_index in range(n_folds):
             test_ibl, val_ibl = rotate(by_dataset["ibl"], fold_index)
@@ -684,12 +687,18 @@ def lab_discriminator(
     typer.echo(summary.to_string())
     summary.to_csv(Path(out) / "summary.csv")
 
-    full = frame[frame["features"] == "bandpower_full"]["auc"].mean()
-    clean = frame[frame["features"] == "bandpower_clean"]["auc"].mean()
-    typer.echo(
-        f"\nArea under the curve falls from {full:.3f} to {clean:.3f} when the ripple band is "
-        f"removed: a drop of {full - clean:.3f}."
-    )
+    means = frame.groupby("features")["auc"].mean()
+    if {"bandpower_full", "bandpower_clean"} <= set(means.index):
+        full, clean = means["bandpower_full"], means["bandpower_clean"]
+        typer.echo(
+            f"\nArea under the curve falls from {full:.3f} to {clean:.3f} when the ripple band "
+            f"is removed: a drop of {full - clean:.3f}."
+        )
+    if "w2v2_frozen" in means.index:
+        typer.echo(
+            f"Frozen audio embeddings identify the source lab at {means['w2v2_frozen']:.3f}, "
+            "which is what a representation dominated by acquisition looks like."
+        )
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 

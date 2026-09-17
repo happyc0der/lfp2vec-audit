@@ -3,3 +3,4 @@
 features,,,,
 bandpower_clean,0.6601,0.0728,0.729,0.1062
 bandpower_full,0.7413,0.0581,0.8373,0.0775
+w2v2_frozen,0.9989,0.0026,1.0,0.0

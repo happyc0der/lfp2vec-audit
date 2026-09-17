@@ -165,3 +165,26 @@ This is not corrected in the stored data, because correcting it would hide it. I
 Stage 2 onward every cross-lab result is reported twice: once on the full band, and once with
 both datasets restricted to a common band below the IBL corner. The difference between those two
 numbers is the part of cross-lab transfer that was never physiological to begin with.
+
+## D12 — Anatomical labels are taken as given
+
+Every region label in this project comes from the dataset producers: histological alignment of a
+reconstructed probe track for IBL, and registration to the common coordinate framework for Allen.
+Both are estimates. A track is reconstructed from a stained slice with tissue that has shrunk and
+deformed, then aligned to a reference brain, and the result assigns a structure to each contact
+with real uncertainty, particularly near a boundary where two structures are tens of micrometres
+apart and the electrode spacing is twenty.
+
+Nothing here can audit that. There is no independent ground truth to check the labels against,
+and this work does not attempt to construct one. Every accuracy reported in this repository is
+therefore accuracy against the released labels, not against anatomy, and the same caveat applies
+to the original paper and to any other work on these datasets.
+
+Two things are worth stating precisely rather than hand-waving. First, the IBL insertions used
+here all have histological alignment marked resolved, which is the producers' own quality bar, so
+these are not the weakest labels in the dataset. Second, label noise of this kind depresses
+measured accuracy rather than inflating it, so a low number could be a labelling limit rather
+than a model limit, while a high number cannot be explained away by it.
+
+The confounds this repository does test, electrode position and signal amplitude, are a separate
+matter and are measured directly in Stage 2.

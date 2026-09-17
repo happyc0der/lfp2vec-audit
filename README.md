@@ -4,7 +4,7 @@
 
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
-> **Status: Stage 1 — data layer.** Both public datasets are read into a common chunk format, with group-aware splits and a dataset card. No model has been trained yet. Every claim below that is not yet measured is marked *planned*.
+> **Status: Stage 2 — baselines.** Both datasets are built, and the interpretable floor is measured across 17 leave-one-session-out folds. The wav2vec2 fine-tune is not yet run. Every claim below that is not yet measured is marked *planned*.
 
 ## What LFP2Vec is
 
@@ -51,31 +51,63 @@ that alone, without learning any anatomy. This is documented rather than correct
 Stage 2 onward every cross-lab result is reported both on the full band and on a common band
 below the IBL corner. See [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D11.
 
-## First numbers: the interpretable baseline
+## Baseline results
 
-Band-power logistic regression over six canonical bands, the feature set LFP-LOC proposes,
-each against its own permutation control. Not yet a comparison with LFP2Vec; this is the floor
-the later stages measure against.
+Leave-one-session-out across 17 folds, four-class view, logistic regression, mean balanced
+accuracy. Every configuration carries a permutation control fitted on the same fold, and all of
+them sit at their fold's chance level. Full tables in
+[`docs/RESULTS_BASELINES.md`](docs/RESULTS_BASELINES.md).
 
-| split | classes | chance | balanced accuracy | permuted labels | ECE |
-|---|---:|---:|---:|---:|---:|
-| cross-session, IBL | 3 | 0.333 | 0.628 | 0.333 | 0.111 |
-| cross-session, Allen | 3 | 0.333 | 0.625 | 0.333 | 0.066 |
-| cross-lab, IBL → Allen | 5 | 0.200 | 0.301 | 0.197 | 0.109 |
+| features | within IBL | within Allen | IBL → Allen | Allen → IBL |
+|---|---:|---:|---:|---:|
+| *chance* | *0.298* | *0.358* | *0.358* | *0.298* |
+| amplitude only | 0.560 | 0.526 | 0.509 | 0.401 |
+| **electrode position only** | **0.817** | **0.822** | **0.628** | **0.521** |
+| band power, ≤100 Hz | 0.399 | 0.480 | 0.366 | 0.364 |
+| band power, full | 0.441 | 0.590 | 0.460 | 0.384 |
+| frozen audio model | 0.697 | 0.701 | 0.377 | 0.304 |
 
-Both permutation controls sit on chance to three decimals, which is the evidence that the splits
-are clean. Cross-lab degradation is selective rather than uniform: CA1 recall falls from 0.65 to
-0.53 and visual cortex holds at 0.76, while CA3 drops to 0.08 and dentate gyrus to 0.14.
+![baselines](docs/figures/baselines.png)
 
-Chance differs by row because balanced accuracy averages recall over the classes a test set
-actually contains, and probe insertions pass through different structures.
+**Electrode position beats the neural signal.** Four numbers describing where a contact sits,
+with the voltage discarded entirely, reach 0.82 where six band powers reach 0.44. Probes are
+lowered along stereotyped trajectories and structures come in a predictable order along a shank,
+so much of what "decoding region from LFP" measures here is available without the LFP. This is
+the control the original paper does not report.
+
+**The frozen audio model is the best signal-based feature within lab, and does not transfer.**
+`facebook/wav2vec2-base`, run forward with nothing fine-tuned, reaches 0.70 and beats band power
+on every IBL fold (Wilcoxon, 7/7, p = 0.016). So the audio prior does carry region information a
+spectral summary does not. Across labs it scores 0.377 against a chance of 0.358.
+
+**Why it collapses, and the calibration failure that comes with it.** A linear model identifies
+which dataset a chunk came from with perfect accuracy from those same embeddings, on probes it
+never saw:
+
+| features | lab identification, area under curve |
+|---|---:|
+| band power, ≤100 Hz | 0.729 |
+| band power, full | 0.837 |
+| frozen audio embeddings | **1.000** |
+
+The representation that makes the audio model the best within-lab feature is dominated by which
+rig produced the recording. Meanwhile its expected calibration error rises from 0.124 within lab
+to **0.478 and 0.631** across labs. A model at chance accuracy reporting high confidence is worse
+than one that is merely wrong, and this is the failure the paper's own Broader Impact section
+anticipates without measuring.
+
+**What this does not show.** A frozen encoder with a linear head is not LFP2Vec. The published
+method adds self-supervised continuation on unlabelled LFP and then fine-tunes, and either stage
+could suppress the acquisition structure that dominates here. Stage 3 tests exactly that: the
+fine-tune has to clear 0.82 from electrode position to claim it reads physiology, and reduce a
+lab-identity score of 1.000 to claim it transfers.
 
 ## Planned experiments
 
 | Stage | Experiment | Status |
 |---|---|---|
 | 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
-| 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | planned |
+| 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | **done** |
 | 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | planned |
 | 4 | Temperature scaling, band-stop and phase-randomisation ablations, band attribution | planned |
 | 5 | Selective prediction: risk–coverage under shift | planned |

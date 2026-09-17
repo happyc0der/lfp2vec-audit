@@ -281,3 +281,97 @@ suspect until it is shown not to rest on that difference, which is why D11 commi
 cross-lab number from Stage 2 onward to being reported on both the full band and a common band
 below the IBL corner.
 
+---
+
+## 2026-09-17 (later still) — Stage 2: the baseline floor, and what it says about the task
+
+Leave-one-session-out over 17 folds, four class views crossed with five feature sets, every
+configuration carrying its own permutation control on the same fold. 1 360 result rows.
+
+### Result 1: electrode position beats the neural signal
+
+Mean balanced accuracy, 4-class view, logistic regression:
+
+| features | within IBL | within Allen | IBL to Allen | Allen to IBL |
+|---|---:|---:|---:|---:|
+| chance | 0.298 | 0.358 | 0.358 | 0.298 |
+| amplitude only | 0.560 | 0.526 | 0.509 | 0.401 |
+| **electrode position only** | **0.817** | **0.822** | **0.628** | **0.521** |
+| band power, ≤100 Hz | 0.399 | 0.480 | 0.366 | 0.364 |
+| band power, full | 0.441 | 0.590 | 0.460 | 0.384 |
+| frozen audio model | 0.697 | 0.701 | 0.377 | 0.304 |
+
+Four numbers for depth, lateral offset, relative depth and channel index, with the voltage
+discarded entirely, reach 0.82 where six band powers reach 0.44. Probes are lowered along
+stereotyped trajectories and structures come in a predictable order along a shank, so a large
+part of what "decoding brain region from LFP" measures on these datasets is available without
+the LFP. Amplitude alone, which is only the scale that normalisation removed, also beats band
+power within lab.
+
+This is the control the original paper does not report, and it is the first thing any number from
+Stage 3 will have to be placed against.
+
+### Result 2: cross-lab band power was mostly the filtering artefact
+
+Dropping the ripple band, the one D11 identified as contaminated, costs cross-lab band power
+almost everything it had: 0.460 to 0.366 against a chance of 0.358. Within lab the same change
+costs much less. Whatever cross-lab transfer band power appeared to have was substantially the
+difference between the two labs' filters.
+
+### Result 3: the frozen audio model is the best signal feature, and it does not transfer at all
+
+`facebook/wav2vec2-base` run forward with nothing fine-tuned, mean-pooled, into a linear
+classifier, reaches 0.70 within lab. That beats hand-designed band power by a wide margin and it
+beats it on every fold of the IBL scheme (Wilcoxon, 7/7, p = 0.016). So the audio prior really
+does carry region information that a spectral summary does not, which is a point in the paper's
+favour and against the LFP-LOC interpretability argument.
+
+Then it collapses. Cross-lab it scores 0.377 against a chance of 0.358, and 0.304 against 0.298.
+Not degraded: gone.
+
+### Result 4: why it collapses, and the calibration failure that comes with it
+
+The lab discriminator, each fold holding out one probe from each dataset:
+
+| features | area under the curve |
+|---|---:|
+| band power, ≤100 Hz | 0.729 |
+| band power, full | 0.837 |
+| **frozen audio embeddings** | **1.000** |
+
+Perfect separation, on every fold, on probes the classifier had never seen. The representation
+that makes the audio model the best within-lab feature is dominated by which rig the recording
+came from. A decision boundary fitted in IBL's region of that space says nothing about where
+Allen's chunks fall, which is exactly a collapse to chance.
+
+And the confidence does not collapse with it. Expected calibration error for the frozen model
+goes from 0.124 within lab to **0.478 and 0.631** across labs. A model performing at chance while
+reporting high confidence is worse than a model that is merely wrong, and this is precisely the
+failure the paper's own Broader Impact section anticipated without measuring.
+
+### What this predicts for Stage 3, and what it does not establish
+
+A frozen encoder with a linear head is not LFP2Vec. The published method adds self-supervised
+continuation on unlabelled LFP and then fine-tunes, and either stage could plausibly suppress the
+acquisition structure that dominates here. Nothing above shows that it does not.
+
+What Stage 2 does is turn the question into a measurable one. The fine-tune has to clear 0.82
+from electrode position to claim it is reading physiology, and it has to reduce a lab-identity
+area under the curve of 1.000 to claim it transfers. Both are now numbers on the same folds with
+the same metrics, so the comparison will be direct.
+
+### Two bugs found
+
+- The first lab discriminator held out a single group, which left a test set containing only one
+  label, where accuracy and area under the curve are both undefined in any useful sense. Each
+  fold now holds out one probe per dataset. When I tried to satisfy the `Split` structure with a
+  stub validation set that overlapped test, the existing leakage verifier refused it, which is
+  the second time that check has earned itself.
+- The neural baseline scored 0.74 on separable synthetic data where it should have scored 1.00,
+  because `early_stopping` holds out a tenth of the training set and a tenth of 400 rows is too
+  noisy a stopping signal. Measured the threshold rather than guessing it: 0.74 at 400 rows, 1.00
+  at 1600. Early stopping is now disabled below 2000 rows, since real folds do get that small once
+  a class view is applied, and an optimisation failure would be indistinguishable in the results
+  table from an absence of signal.
+
+
