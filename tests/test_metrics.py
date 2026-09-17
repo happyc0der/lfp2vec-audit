@@ -4,8 +4,11 @@ from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from lfpaudit.eval.metrics import (
     brier_score,
+    chance_level,
     chance_level_band,
+    classes_present,
     evaluate,
+    expand_probabilities,
     expected_calibration_error,
     negative_log_likelihood,
     reliability_curve,
@@ -125,3 +128,62 @@ def test_noise_band_ignores_absent_classes():
 def test_noise_band_rejects_empty_labels():
     with pytest.raises(ValueError, match="no labelled samples"):
         chance_level_band(np.array([], dtype=int), n_classes=5)
+
+
+def test_chance_level_follows_the_classes_actually_present():
+    """A held-out insertion need not contain every region, and chance moves when it does not."""
+    five = np.repeat(np.arange(5), 10)
+    three = np.repeat([0, 3, 4], 10)
+    assert chance_level(five, n_classes=5) == pytest.approx(0.2)
+    assert chance_level(three, n_classes=5) == pytest.approx(1 / 3)
+
+
+def test_classes_present_ignores_the_label_space_size():
+    np.testing.assert_array_equal(classes_present(np.array([0, 4, 4]), 5), [0, 4])
+
+
+def test_report_carries_the_chance_level_it_was_scored_against():
+    labels = np.repeat([0, 3, 4], 20)
+    probs = _onehot(labels)
+    report = evaluate(probs, labels)
+    assert report.chance == pytest.approx(1 / 3)
+    assert report.classes_present == ["CA1", "DG", "VIS"]
+    # Absent classes contribute no recall entry rather than a NaN.
+    assert set(report.per_class_recall) == {"CA1", "DG", "VIS"}
+
+
+def test_macro_f1_ignores_classes_absent_from_the_test_set():
+    """Including a class with no test samples would understate the model for no good reason."""
+    labels = np.repeat([0, 3, 4], 20)
+    report = evaluate(_onehot(labels), labels)
+    assert report.macro_f1 == pytest.approx(1.0)
+
+
+def test_expand_probabilities_places_columns_at_their_global_index():
+    """A model trained without CA2 returns four columns; they must not shift the others."""
+    probs = np.array([[0.7, 0.1, 0.1, 0.1], [0.1, 0.2, 0.3, 0.4]])
+    expanded = expand_probabilities(probs, classes=np.array([0, 2, 3, 4]), n_classes=5)
+    assert expanded.shape == (2, 5)
+    np.testing.assert_allclose(expanded[:, 1], 0.0)
+    np.testing.assert_allclose(expanded[:, [0, 2, 3, 4]], probs)
+    np.testing.assert_allclose(expanded.sum(axis=1), 1.0)
+
+
+def test_expand_probabilities_rejects_mismatched_inputs():
+    with pytest.raises(ValueError, match="probability columns"):
+        expand_probabilities(np.zeros((2, 3)), classes=np.array([0, 1]), n_classes=5)
+    with pytest.raises(ValueError, match="exceeds"):
+        expand_probabilities(np.zeros((2, 2)), classes=np.array([0, 9]), n_classes=5)
+
+
+def test_expanded_probabilities_score_an_unseen_class_as_zero_recall():
+    """The honest outcome for a class the model never saw, rather than a crash."""
+    labels = np.array([0, 1, 1, 4])
+    probs = expand_probabilities(
+        np.array([[0.9, 0.1], [0.8, 0.2], [0.7, 0.3], [0.2, 0.8]]),
+        classes=np.array([0, 4]),
+        n_classes=5,
+    )
+    report = evaluate(probs, labels)
+    assert report.per_class_recall["CA2"] == 0.0
+    assert report.per_class_recall["CA1"] == 1.0

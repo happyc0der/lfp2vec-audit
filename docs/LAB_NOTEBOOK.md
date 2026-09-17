@@ -195,3 +195,89 @@ Channels the destriper flagged as dead or noisy are dropped rather than kept as 
 copies of their neighbours (D10). Empty probe files are detected and recorded rather than
 silently contributing nothing (D8).
 
+### Allen store built, and what it verifies
+
+50 200 chunks from 502 channels across ten live probes in two sessions, 3.0 s at 1249.999 Hz.
+
+The physiology check that matters: the mean spectrum peaks at **7.00 Hz**, measured directly as
+the spectral maximum below 20 Hz rather than read off a plot. Mouse theta is 6-10 Hz, so that
+single number simultaneously confirms the sampling rate, the unit conversion and the absence of
+an off-by-a-factor error anywhere in the chain. A pipeline with the wrong sampling rate or a
+misapplied filter would not land there by accident.
+
+Region differences are real and in the right direction, but modest:
+
+| region | chunks | theta share | gamma share | median amplitude |
+|---|---:|---:|---:|---:|
+| CA1 | 15 100 | 0.448 | 0.116 | 153 uV |
+| CA2 | 400 | 0.389 | 0.105 | 141 uV |
+| CA3 | 3 300 | 0.354 | 0.144 | 101 uV |
+| DG | 8 700 | 0.374 | 0.169 | 136 uV |
+| VIS | 22 700 | 0.369 | 0.118 | 69 uV |
+
+Strongest theta in CA1, elevated gamma in dentate gyrus, cortex lowest in amplitude and highest
+in delta. All three match textbook descriptions. That the separations are modest rather than
+dramatic is worth noting now, before any baseline is fitted: a six-number spectral summary has a
+real problem to solve here, not a trivial one.
+
+**Adding session 798911424 was necessary, not precautionary.** It supplies every CA2 channel (4)
+and every CA3 channel (33) in the store. Session 719161530 alone, the first one upstream lists,
+contains neither, because its only CA2/CA3 probes are the two that hold nothing but zeros.
+
+**CA2 is as thin as feared**: 4 channels, 400 chunks, against 227 channels for visual cortex.
+Macro-averaged scores will be dominated by noise in that class, which is why the chance band in
+the smoke gate is computed from the rarest class rather than the total.
+
+### Both stores built; first real numbers, and a confound found before any training
+
+| store | chunks | channels | sources | fs |
+|---|---:|---:|---:|---|
+| ibl | 132 600 | 1 326 | 7 insertions, 5 labs | 1250.012 Hz |
+| allen | 50 200 | 502 | 10 probes, 2 sessions | 1249.999 Hz |
+
+**IBL contains no CA2 at all.** Not one channel across seven insertions. Every CA2 chunk in the
+corpus comes from Allen, and only four channels there. This surfaced as a crash rather than a
+number, which was lucky: a classifier trained on IBL returns four probability columns while the
+labels span five classes, so the columns silently misalign unless they are explicitly placed.
+They are now, and an unseen class scores zero recall rather than shifting every other class's
+score by one position.
+
+**A second correctness bug, found the same way.** The gate compared balanced accuracy against a
+fixed chance level of one over five. But balanced accuracy averages recall over the classes
+present in the test labels, and insertions pass through different structures: the held-out IBL
+insertion contains only CA1, DG and VIS, so its chance level is 0.333. The permutation control
+scored exactly 0.333 and was flagged as a leak. Chance and the macro averages are now both
+derived from the classes actually present, and reported alongside every result so a reader can
+see what a number is being compared against.
+
+#### First real results, interpretable baseline only
+
+Band-power logistic regression, the LFP-LOC feature set, against its own permutation control:
+
+| split | classes | chance | balanced accuracy | permuted | ECE |
+|---|---:|---:|---:|---:|---:|
+| cross-session, IBL | 3 | 0.333 | 0.628 | 0.333 | 0.111 |
+| cross-session, Allen | 3 | 0.333 | 0.625 | 0.333 | 0.066 |
+| cross-lab, IBL to Allen | 5 | 0.200 | 0.301 | 0.197 | 0.109 |
+
+Both permutation controls land on chance to three decimal places, which is the strongest
+evidence so far that the splits are clean. Within-lab performance is nearly identical across two
+independently built datasets, at 1.9 times chance.
+
+Cross-lab degradation is selective rather than uniform, which is the interesting part. CA1 recall
+falls from 0.65 to 0.53 and visual cortex holds at 0.76, while CA3 collapses to 0.08 and dentate
+gyrus to 0.14. A uniform drop would suggest added noise; this pattern suggests specific features
+stop transferring.
+
+#### The confound, found before training anything
+
+Comparing the two stores' mean spectra directly: they agree below 100 Hz and diverge by up to
+768-fold above 300 Hz, because IBL destriping band-passes at 0.5-300 Hz and the Allen cache does
+not. Recorded as D11. Relative ripple-band power is 2.8 times higher in Allen, so the
+contamination reaches the band carrying the clearest hippocampal marker.
+
+This matters more than a preprocessing note. Any cross-lab result in this repository is now
+suspect until it is shown not to rest on that difference, which is why D11 commits every
+cross-lab number from Stage 2 onward to being reported on both the full band and a common band
+below the IBL corner.
+

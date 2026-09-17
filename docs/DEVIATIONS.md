@@ -138,3 +138,30 @@ the paper.
 - The README references `environment.yml` and `script/dataset_preprocessing/`, neither of which
   exists in the tree.
 - `wandb.init` is called unconditionally, so the entry point requires a Weights & Biases login.
+
+## D11 — The two datasets are filtered differently, and it shows above 200 Hz
+
+Measured after both stores were built, comparing mean power spectra normalised to each store's
+own value at 10 Hz:
+
+| frequency | Allen power relative to IBL |
+|---:|---:|
+| 100 Hz | 1.1x |
+| 200 Hz | 3.3x |
+| 300 Hz | 33x |
+| 500 Hz | 768x |
+
+Below 100 Hz the two agree closely. Above it they diverge by orders of magnitude, because the
+IBL destriping applies a 0.5-300 Hz band-pass while the Allen cache is delivered already
+downsampled with no comparable corner. Neither is wrong; they are different pipelines, and both
+are used here exactly as their upstream code uses them.
+
+The consequence for this audit is direct. A classifier could separate the two labs perfectly by
+looking above 300 Hz alone, without learning anything anatomical. The contamination also reaches
+into a band that matters: relative ripple-band power (100-250 Hz) is 2.8 times higher in Allen,
+and ripple activity is the classic physiological marker distinguishing hippocampal CA1.
+
+This is not corrected in the stored data, because correcting it would hide it. Instead, from
+Stage 2 onward every cross-lab result is reported twice: once on the full band, and once with
+both datasets restricted to a common band below the IBL corner. The difference between those two
+numbers is the part of cross-lab transfer that was never physiological to begin with.

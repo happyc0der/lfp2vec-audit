@@ -27,6 +27,49 @@ This repository measures both gaps on public data:
 - A difference measured here is a difference **against this reproduction**, not a refutation of the published model. No pretrained LFP2Vec weights have been released, so exact published numbers cannot be checked.
 - It does not claim LFP-based anatomical localisation is solved, unsolved, or anything in between.
 
+## What is in the data so far
+
+| store | chunks | channels | sources |
+|---|---:|---:|---|
+| IBL | 132,600 | 1,326 | 7 insertions, 5 labs |
+| Allen | 50,200 | 502 | 10 probes, 2 sessions |
+
+Full per-probe breakdown in [`docs/DATA_CARD.md`](docs/DATA_CARD.md); sampled chunks and
+per-region spectra in [`docs/figures/`](docs/figures).
+
+Two things worth knowing before any model is trained.
+
+**The IBL recordings contain no CA2 channels at all.** Every CA2 chunk in the corpus comes from
+Allen, and only four channels there. Any model trained on IBL therefore cannot predict CA2, and
+scores zero recall on it by construction rather than by failure.
+
+**The two datasets are filtered differently, and it is measurable.** Their mean spectra agree
+below 100 Hz and diverge by up to 768-fold above 300 Hz, because the IBL pipeline band-passes at
+0.5–300 Hz and the Allen cache does not. Relative power in the ripple band, the clearest
+hippocampal marker, is 2.8 times higher in Allen. A classifier could separate the two labs on
+that alone, without learning any anatomy. This is documented rather than corrected, and from
+Stage 2 onward every cross-lab result is reported both on the full band and on a common band
+below the IBL corner. See [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D11.
+
+## First numbers: the interpretable baseline
+
+Band-power logistic regression over six canonical bands, the feature set LFP-LOC proposes,
+each against its own permutation control. Not yet a comparison with LFP2Vec; this is the floor
+the later stages measure against.
+
+| split | classes | chance | balanced accuracy | permuted labels | ECE |
+|---|---:|---:|---:|---:|---:|
+| cross-session, IBL | 3 | 0.333 | 0.628 | 0.333 | 0.111 |
+| cross-session, Allen | 3 | 0.333 | 0.625 | 0.333 | 0.066 |
+| cross-lab, IBL → Allen | 5 | 0.200 | 0.301 | 0.197 | 0.109 |
+
+Both permutation controls sit on chance to three decimals, which is the evidence that the splits
+are clean. Cross-lab degradation is selective rather than uniform: CA1 recall falls from 0.65 to
+0.53 and visual cortex holds at 0.76, while CA3 drops to 0.08 and dentate gyrus to 0.14.
+
+Chance differs by row because balanced accuracy averages recall over the classes a test set
+actually contains, and probe insertions pass through different structures.
+
 ## Planned experiments
 
 | Stage | Experiment | Status |

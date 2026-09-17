@@ -19,7 +19,7 @@ import numpy as np
 import typer
 from sklearn.linear_model import LogisticRegression
 
-from lfpaudit import REGION_TO_INDEX, __version__
+from lfpaudit import REGION_TO_INDEX, REGIONS, __version__
 from lfpaudit.config import set_seed
 from lfpaudit.data.card import DatasetCard
 from lfpaudit.data.chunk import ChunkStore
@@ -29,7 +29,7 @@ from lfpaudit.data.manifest import RunManifest
 from lfpaudit.data.splits import Split, make_split, verify_no_leakage
 from lfpaudit.data.synthetic import SyntheticSpec, build_synthetic_store
 from lfpaudit.device import environment_summary, pick_device
-from lfpaudit.eval.metrics import chance_level_band, evaluate
+from lfpaudit.eval.metrics import chance_level_band, evaluate, expand_probabilities
 from lfpaudit.features.bandpower import band_power
 
 app = typer.Typer(add_completion=False, help="Audit tooling for LFP2Vec-style region decoding.")
@@ -321,24 +321,39 @@ def real_smoke(
     train_x, train_y = features_and_labels(split.train)
     test_x, test_y = features_and_labels(split.test)
 
-    model = LogisticRegression(max_iter=2000)
-    model.fit(train_x, train_y)
-    report = evaluate(model.predict_proba(test_x), test_y)
+    def fit_and_score(labels: np.ndarray):
+        model = LogisticRegression(max_iter=2000)
+        model.fit(train_x, labels)
+        # A region absent from training gets a zero column rather than a shifted one.
+        probs = expand_probabilities(model.predict_proba(test_x), model.classes_)
+        return evaluate(probs, test_y)
 
+    report = fit_and_score(train_y)
     rng = np.random.default_rng(seed)
-    permuted = LogisticRegression(max_iter=2000)
-    permuted.fit(train_x, rng.permutation(train_y))
-    control = evaluate(permuted.predict_proba(test_x), test_y)
+    control = fit_and_score(rng.permutation(train_y))
+
+    trained_on = sorted(set(train_y.tolist()))
+    unseen = [REGIONS[i] for i in range(len(REGIONS)) if i not in trained_on]
+    if unseen:
+        typer.secho(
+            f"note: {', '.join(unseen)} absent from the training split; "
+            "the model cannot predict it and its recall is zero by construction",
+            fg=typer.colors.YELLOW,
+        )
 
     typer.echo(f"band-power LR : {report.summary_line()}")
     typer.echo(f"permuted label: {control.summary_line()}")
     typer.echo(f"per-class recall: {report.per_class_recall}")
 
-    chance = 1.0 / len(report.class_names)
-    # Scaled to the test set rather than fixed, so the same gate is meaningful whether the split
-    # leaves forty test chunks or forty thousand.
-    band = chance_level_band(test_y, len(report.class_names))
-    typer.echo(f"chance {chance:.3f}, noise band +/-{band:.3f}")
+    # Both the chance level and the noise band come from the test labels themselves: a held-out
+    # insertion need not contain every region, and one that contains three has a chance level of
+    # 0.33 rather than 0.20.
+    chance = report.chance
+    band = chance_level_band(test_y)
+    typer.echo(
+        f"test classes: {', '.join(report.classes_present)} "
+        f"-> chance {chance:.3f}, noise band +/-{band:.3f}"
+    )
 
     failures = []
     if report.balanced_accuracy <= chance + band:

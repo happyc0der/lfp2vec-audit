@@ -1,0 +1,31 @@
+{
+  "config": {
+    "kind": "cross_session",
+    "split": "experiments/splits/cross_session_ibl.json"
+  },
+  "data_hashes": {
+    "card.json": "fa99a4658e9c7fef7684ad518303e76fa463875cad620d67f825393d9c79650c",
+    "chunks.f16": "e85fececc79a7a5978b96e6522cb3dd5fc7757045feb0cf5c7d02e7234ba2f87",
+    "index.parquet": "7f00518f2c36fec71cd656aa8bdb9e6fea369cd1b34c8f69dc2b4d9e7e014d55",
+    "store.json": "2ee1fb7e0d10da6ed938c22295e806735a5ea4b19e6c7b92eccccb315aa19fb9"
+  },
+  "device": "cpu",
+  "environment": {
+    "devices": "mps,cpu",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python": "3.11.16",
+    "torch": "2.14.0"
+  },
+  "experiment": "real_smoke_cross_session_ibl",
+  "finished_at": "2026-09-17T03:48:34+00:00",
+  "git": {
+    "branch": "main",
+    "commit": "32c8ea5c365bf2df4023653202d492ce24ed9c69",
+    "dirty": "true"
+  },
+  "lfpaudit_version": "0.1.0",
+  "run_id": "20260917T034816-58568f",
+  "seed": 0,
+  "started_at": "2026-09-17T03:48:17+00:00",
+  "status": "failed"
+}
