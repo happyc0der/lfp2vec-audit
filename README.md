@@ -1,5 +1,7 @@
 # lfp2vec-audit
 
+[![ci](https://github.com/happyc0der/lfp2vec-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/happyc0der/lfp2vec-audit/actions/workflows/ci.yml)
+
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
 > **Status: Stage 0 — scaffold.** The offline core (chunking, labels, splits, features, metrics, manifests) is implemented and tested. No real data has been processed and no model has been trained yet. Every claim below that is not yet measured is marked *planned*.

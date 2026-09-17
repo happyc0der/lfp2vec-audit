@@ -110,6 +110,12 @@ below chance, so both gates behave. Worth noting even here: the model's ECE is 0
 it is already substantially overconfident on data it handles well. That is the phenomenon the
 real experiments are built to measure, showing up in a toy.
 
+### Stage 0 closed
+
+Repository public at https://github.com/happyc0der/lfp2vec-audit, CI green on commit `4bad59c`
+(https://github.com/happyc0der/lfp2vec-audit/actions/runs/35172908689). 93 tests, lint and the
+end-to-end smoke run all pass on a clean ubuntu checkout as well as locally on MPS and CPU.
+
 ### Open questions carried into Stage 1
 
 - Does direct NWB reading from the Allen S3 bucket work, or is AllenSDK unavoidable (D4)?
