@@ -143,11 +143,91 @@ def discriminator_figure(folds: pd.DataFrame, out_path: Path) -> Path:
     return out_path
 
 
+def finetune_figure(
+    folds: pd.DataFrame, finetune: pd.DataFrame, out_path: Path, view: str = "4class"
+) -> Path:
+    """The fine-tune placed against every baseline that needed less.
+
+    The comparison the paper does not make: a 95-million-parameter model beside four numbers
+    describing where the electrode sits, and beside the same checkpoint with nothing trained at
+    all, on the same folds with the same metric.
+    """
+    baselines = folds[
+        (folds["view"] == view) & (folds["model"] == "logreg") & (folds["control"] == "model")
+    ]
+    tuned = finetune[(finetune["view"] == view) & (~finetune["permuted"])]
+    schemes = [s for s in SCHEME_LABELS if s in set(tuned["scheme"])]
+    if not schemes:
+        raise ValueError("no fine-tune runs to plot")
+
+    order = [f for f in FEATURE_ORDER if f in set(baselines["features"])] + ["finetuned"]
+    labels = {**FEATURE_LABELS, "finetuned": "fine-tuned wav2vec2"}
+    colours = {**COLOURS, "finetuned": "#7b3294"}
+
+    fig, axes = plt.subplots(
+        1, len(schemes), figsize=(3.7 * len(schemes), 4.4), sharey=True, squeeze=False
+    )
+    axes = axes[0]
+
+    for ax, scheme in zip(axes, schemes, strict=False):
+        base = baselines[baselines["scheme"] == scheme]
+        runs = tuned[tuned["scheme"] == scheme]
+        chance = float(runs["chance"].mean())
+
+        for position, feature in enumerate(order):
+            rows = (
+                runs["balanced_accuracy"]
+                if feature == "finetuned"
+                else base[base["features"] == feature]["balanced_accuracy"]
+            )
+            if not len(rows):
+                continue
+            ax.bar(position, rows.mean(), color=colours.get(feature, "#888"), width=0.68, zorder=2)
+            jitter = np.random.default_rng(0).uniform(-0.16, 0.16, len(rows))
+            ax.scatter(
+                position + jitter, rows, s=13, color="#222222", alpha=0.75, zorder=3, linewidths=0
+            )
+
+        ax.axhline(chance, color="#d62728", linestyle="--", linewidth=1.2, zorder=1)
+        ax.text(-0.45, chance - 0.02, f"chance {chance:.2f}", color="#d62728", fontsize=7, va="top")
+        ax.set_title(SCHEME_LABELS.get(scheme, scheme), fontsize=9)
+        ax.set_xticks(range(len(order)))
+        ax.set_xticklabels([labels.get(f, f) for f in order], rotation=35, ha="right", fontsize=7.5)
+        ax.tick_params(axis="y", labelsize=8)
+        ax.set_ylim(0, 1.0)
+        ax.grid(axis="y", alpha=0.25, zorder=0)
+
+    axes[0].set_ylabel("balanced accuracy", fontsize=9)
+    fig.suptitle(
+        f"Fine-tuned wav2vec2 against what needed less ({view}, one point per held-out session)",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def load_finetune(root: Path) -> pd.DataFrame | None:
+    """Every fine-tune run's per-group scores, or None when none have been run."""
+    paths = sorted(root.glob("*/*/per_group.csv"))
+    if not paths:
+        return None
+    frames = []
+    for path in paths:
+        frame = pd.read_csv(path)
+        frame["run"] = path.parent.parent.name
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", type=Path, default=Path("results/baselines"))
     parser.add_argument("--discriminator", type=Path, default=Path("results/lab_discriminator"))
     parser.add_argument("--out", type=Path, default=Path("docs/figures"))
+    parser.add_argument("--finetune", type=Path, default=Path("results/finetune"))
     parser.add_argument("--view", default="4class")
     args = parser.parse_args()
 
