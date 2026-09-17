@@ -76,6 +76,14 @@ splits with verifier, band-power features, metric suite, run manifests, CLI with
   -> divide by zero / overflow / underflow / invalid value encountered in matmul
   ```
 
+- **CI lint passed locally but failed on the runner.** Same ruff version, same command,
+  different verdict on import ordering. Ruff's automatic first-party detection depends on how
+  the package is installed, so `lfpaudit` was classified as first-party locally and split
+  across groups on CI. Reproduced with `ruff check --isolated`, then fixed by declaring
+  `known-first-party` explicitly rather than by reformatting to whatever the runner wanted.
+- **CI could not install into the runner's system Python** (PEP 668, externally managed).
+  Switched to a uv venv on PATH, which also puts CI on the same Python 3.11 as local.
+
 ### First smoke result (synthetic data, so this is a pipeline check, not a finding)
 
 ```
