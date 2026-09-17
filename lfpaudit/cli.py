@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import tempfile
 import warnings
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -761,6 +761,7 @@ def finetune_run(
     budget_hours: float = typer.Option(3.0, help="Refuse to start if the estimate exceeds this."),
 ) -> None:
     """Fine-tune on one fold, scoring every target group and saving everything Stage 4 needs."""
+    from lfpaudit.eval.folds import Fold
     from lfpaudit.eval.probe import lab_identity_auc
     from lfpaudit.eval.runner import CLASS_VIEWS
     from lfpaudit.models.dataset import ChunkDataset, balanced_sample, class_counts
@@ -782,6 +783,26 @@ def finetune_run(
 
     chosen = _resolve_fold(index, scheme, fold, seed)
     sizes = verify_no_leakage(chosen.split, index)
+
+    # Every fold of a cross-lab scheme shares one training set and differs only in which target
+    # group it scores. Training once per target probe would repeat the same two hours ten times,
+    # so the test set here is the union of all of them and per-probe scores are recovered from
+    # the saved predictions afterwards.
+    if scheme.startswith("cross_lab") and fold is None:
+        from lfpaudit.eval.folds import build_schemes
+
+        siblings = build_schemes(index, seed=seed)[scheme]
+        pooled = sorted({i for sibling in siblings for i in sibling.split.test})
+        chosen = Fold(
+            name="all_target_groups",
+            scheme=scheme,
+            split=replace(
+                chosen.split,
+                test=pooled,
+                test_groups=sorted({g for s in siblings for g in s.split.test_groups}),
+            ),
+        )
+        sizes = verify_no_leakage(chosen.split, index)
     typer.echo(f"{scheme} / fold {chosen.name}: {sizes}")
 
     config = FineTuneConfig(
@@ -877,10 +898,46 @@ def finetune_run(
         metrics[view] = report.to_dict()
         typer.echo(f"{view}: {report.summary_line()}")
 
-    frame = pd.DataFrame({"chunk_id": ids[test_rows], "label": test_y})
+    frame = pd.DataFrame(
+        {
+            "chunk_id": ids[test_rows],
+            "label": test_y,
+            "group": index.iloc[test_rows]["group"].to_numpy(),
+        }
+    )
     for i, region in enumerate(REGIONS):
         frame[f"logit_{region}"] = logits[:, i].astype(np.float32)
     frame.to_parquet(run_dir / "predictions.parquet", index=False)
+
+    # Per-group scores, so a cross-lab run reports a spread over target probes rather than one
+    # pooled number, and can be compared against the Stage 2 baselines fold for fold.
+    per_group = []
+    for name, part in frame.groupby("group"):
+        rows = part.index.to_numpy()
+        for view, allowed in CLASS_VIEWS.items():
+            allowed_idx = [REGION_TO_INDEX[n] for n in allowed]
+            keep_view = np.isin(test_y[rows], allowed_idx)
+            if keep_view.sum() < 2 or len(np.unique(test_y[rows][keep_view])) < 2:
+                continue
+            report = evaluate(probs[rows][keep_view], test_y[rows][keep_view])
+            per_group.append(
+                {
+                    "scheme": scheme,
+                    "group": name,
+                    "view": view,
+                    "seed": seed,
+                    "lowpass_hz": config.lowpass_hz or 0.0,
+                    "permuted": permute_labels,
+                    "n_test": int(keep_view.sum()),
+                    "chance": report.chance,
+                    "balanced_accuracy": report.balanced_accuracy,
+                    "macro_f1": report.macro_f1,
+                    "ece": report.ece,
+                    "nll": report.nll,
+                    "classes_present": "|".join(report.classes_present),
+                }
+            )
+    pd.DataFrame(per_group).to_csv(run_dir / "per_group.csv", index=False)
 
     # The other half of the audit: does fine-tuning remove the acquisition structure that made
     # the frozen representation useless across labs?
@@ -917,6 +974,94 @@ def finetune_run(
     )
     manifest.finish(run_dir, status="ok")
     typer.secho(f"wrote {run_dir}", fg=typer.colors.GREEN)
+
+
+@finetune_app.command("report")
+def finetune_report(
+    results: Path = typer.Option(Path("results/finetune")),
+    baselines: Path = typer.Option(Path("results/baselines")),
+    view: str = typer.Option("4class"),
+    out: Path = typer.Option(None, help="Write a markdown document here."),
+) -> None:
+    """Collect every fine-tune run and place it beside the Stage 2 baselines.
+
+    A fine-tune number on its own says nothing. The comparisons that matter are against electrode
+    position, which needs no signal at all, and against the frozen checkpoint, which needed no
+    training. Both are read from the committed baseline table so the two stages cannot drift.
+    """
+    runs = sorted(Path(results).glob("*/*/per_group.csv"))
+    if not runs:
+        raise typer.BadParameter(f"no runs found under {results}")
+
+    frames = []
+    for path in runs:
+        frame = pd.read_csv(path)
+        frame["run"] = path.parent.parent.name
+        metrics_path = path.parent / "metrics.json"
+        if metrics_path.exists():
+            frame["lab_identity_auc"] = json.loads(metrics_path.read_text()).get(
+                "lab_identity_auc", float("nan")
+            )
+        frames.append(frame)
+    table = pd.concat(frames, ignore_index=True)
+    table = table[table["view"] == view]
+
+    lines = [f"# Fine-tune results ({view})", ""]
+    for scheme in sorted(table["scheme"].unique()):
+        part = table[(table["scheme"] == scheme) & (~table["permuted"])]
+        lines += [f"## `{scheme}`", ""]
+        lines += [
+            "| run | band | groups | balanced accuracy | chance | ECE | lab identity |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+        for run, group in part.groupby("run"):
+            band = "<=100 Hz" if group["lowpass_hz"].iloc[0] else "full"
+            spread = group["balanced_accuracy"].std()
+            spread_text = "" if pd.isna(spread) else f" +/- {spread:.3f}"
+            auc = group["lab_identity_auc"] if "lab_identity_auc" in group else None
+            auc_text = "n/a" if auc is None or pd.isna(auc.iloc[0]) else f"{auc.iloc[0]:.3f}"
+            lines.append(
+                f"| {run} | {band} | {len(group)} | "
+                f"{group['balanced_accuracy'].mean():.3f}{spread_text} | "
+                f"{group['chance'].mean():.3f} | {group['ece'].mean():.3f} | {auc_text} |"
+            )
+        lines.append("")
+
+        baseline_path = Path(baselines) / "folds.csv"
+        if baseline_path.exists():
+            folds = pd.read_csv(baseline_path)
+            reference = folds[
+                (folds["scheme"] == scheme)
+                & (folds["view"] == view)
+                & (folds["model"] == "logreg")
+                & (folds["control"] == "model")
+            ]
+            if len(reference):
+                lines += ["Stage 2 baselines on the same scheme, for comparison:", ""]
+                lines += ["| features | balanced accuracy | ECE |", "|---|---:|---:|"]
+                summary = reference.groupby("features")[["balanced_accuracy", "ece"]].mean()
+                ordered = summary.sort_values("balanced_accuracy", ascending=False)
+                for name, row in ordered.iterrows():
+                    lines.append(f"| {name} | {row['balanced_accuracy']:.3f} | {row['ece']:.3f} |")
+                lines.append("")
+
+    permuted = table[table["permuted"]]
+    if len(permuted):
+        lines += [
+            "## Leakage check",
+            "",
+            f"Permuted-label fine-tune: balanced accuracy "
+            f"{permuted['balanced_accuracy'].mean():.3f} against a chance of "
+            f"{permuted['chance'].mean():.3f}.",
+            "",
+        ]
+
+    text = "\n".join(lines)
+    typer.echo(text)
+    if out is not None:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(text)
+        typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover
