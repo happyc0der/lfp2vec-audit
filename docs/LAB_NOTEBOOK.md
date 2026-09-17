@@ -436,4 +436,31 @@ decision cannot leak across sessions. Validation balanced accuracy was not monot
 epoch 2 and reported 0.694 instead of 0.801, understating the model by a tenth for no reason
 other than noise.
 
+### Both directions, and they agree
+
+Repeating the experiment with the datasets exchanged, training on Allen and scoring all seven IBL
+insertions:
+
+| | IBL to Allen | Allen to IBL |
+|---|---:|---:|
+| within-lab validation | 0.801 | 0.757 |
+| cross-lab test | 0.340 | 0.302 |
+| chance on those groups | 0.358 | 0.298 |
+| calibration error | 0.535 | 0.655 |
+| negative log-likelihood | 4.76 | 4.67 |
+| lab identity after fine-tuning | 0.997 | 0.994 |
+
+The picture is symmetric. Both directions train to a usable within-lab model, both land on their
+own chance level when moved to the other dataset, both do so while badly miscalibrated, and in
+both the representation still identifies the source lab almost perfectly after training.
+
+Placed against Stage 2 on the same schemes, the fine-tune is the **worst** cross-lab method
+tested in both directions, below band power, below amplitude, below electrode position, and below
+the same checkpoint with nothing trained at all. It is also the most confident.
+
+That combination is the finding. A model can be simultaneously the best within-lab option
+available and the worst possible one across labs, and nothing in a within-lab evaluation reveals
+it. The only measurement that anticipates the failure is the one nobody runs: asking what else
+the representation knows.
+
 

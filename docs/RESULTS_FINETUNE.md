@@ -1,5 +1,21 @@
 # Fine-tune results (4class)
 
+## `cross_lab_allen_to_ibl`
+
+| run | band | groups | balanced accuracy | chance | ECE | lab identity |
+|---|---|---:|---:|---:|---:|---:|
+| cross_lab_allen_to_ibl__all_target_groups__seed0 | full | 7 | 0.302 +/- 0.063 | 0.298 | 0.655 | 0.994 |
+
+Stage 2 baselines on the same scheme, for comparison:
+
+| features | balanced accuracy | ECE |
+|---|---:|---:|
+| geometry | 0.521 | 0.402 |
+| amplitude | 0.401 | 0.190 |
+| bandpower_full | 0.384 | 0.147 |
+| bandpower_clean | 0.364 | 0.177 |
+| w2v2_frozen | 0.304 | 0.631 |
+
 ## `cross_lab_ibl_to_allen`
 
 | run | band | groups | balanced accuracy | chance | ECE | lab identity |
