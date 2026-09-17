@@ -243,6 +243,12 @@ def main() -> None:
             ),
         )
 
+    tuned = load_finetune(args.finetune)
+    if tuned is None:
+        print(f"no fine-tune runs under {args.finetune}; skipping that panel")
+    else:
+        print("wrote", finetune_figure(folds, tuned, args.out / "finetune.png", view=args.view))
+
 
 if __name__ == "__main__":
     main()
