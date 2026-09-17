@@ -15,9 +15,17 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      # The runner's system Python is externally managed, so install into a uv venv and put it
+      # on PATH. This also keeps CI on the same Python 3.11 the project pins locally.
+      - name: Create the environment
+        run: |
+          uv venv --python 3.11
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install the package
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
 
       - name: Lint
         run: |
