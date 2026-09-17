@@ -16,6 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import typer
 from sklearn.linear_model import LogisticRegression
 
@@ -382,6 +383,269 @@ def real_smoke(
             typer.secho(f"GATE FAILED: {message}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     typer.secho(f"real smoke passed; wrote {run_dir}", fg=typer.colors.GREEN)
+
+
+# ---------------------------------------------------------------------------------------------
+# Stage 2: feature extraction, baselines and the lab discriminator.
+# ---------------------------------------------------------------------------------------------
+
+CHEAP_FEATURES = ("bandpower_full", "bandpower_clean", "geometry", "amplitude")
+
+
+def _load_corpus(ibl: Path, allen: Path) -> Corpus:
+    return Corpus.load({"ibl": ibl, "allen": allen})
+
+
+def _build_feature_table(
+    corpus: Corpus, name: str, cache_root: Path, device: str | None, rebuild: bool
+) -> np.ndarray:
+    """Return one feature table for the whole corpus, building and caching per store.
+
+    Features are cached per store rather than per corpus so that adding a dataset later does not
+    invalidate the work already done on the others.
+    """
+    from lfpaudit.config import BANDS
+    from lfpaudit.features.amplitude import amplitude_features
+    from lfpaudit.features.bandpower import band_power
+    from lfpaudit.features.cache import FeatureCache
+    from lfpaudit.features.geometry import geometry_features
+
+    parts = []
+    for store_name in sorted(corpus.stores):
+        store = corpus.stores[store_name]
+        cache = FeatureCache(Path(cache_root) / store_name, store.index)
+        rows = np.arange(len(store.index))
+
+        def builder(store=store, rows=rows, name=name, store_name=store_name):
+            if name == "geometry":
+                return geometry_features(store.index)
+            if name == "amplitude":
+                return amplitude_features(store.index)
+            if name.startswith("bandpower"):
+                # The clean variant drops the ripple band, where the two datasets' preprocessing
+                # diverges by orders of magnitude (see DEVIATIONS D11), and renormalises so the
+                # remaining bands still sum to one.
+                bands = dict(BANDS)
+                if name == "bandpower_clean":
+                    bands.pop("ripple")
+                typer.echo(f"  building {name} for {store_name} ({len(rows)} chunks)")
+                return band_power(store.take(rows), fs=store.fs, bands=bands)
+            if name == "w2v2_frozen":
+                from lfpaudit.features.embed import embed_chunks
+
+                typer.echo(f"  embedding {store_name} ({len(rows)} chunks) on {device}")
+                return embed_chunks(
+                    lambda r: store.take(r), rows, fs=store.fs, device=device or "cpu"
+                )
+            raise ValueError(f"unknown feature set {name!r}")
+
+        parts.append(cache.get_or_build(name, builder, rebuild=rebuild))
+
+    widths = {p.shape[1] for p in parts}
+    if len(widths) != 1:
+        raise ValueError(f"{name}: stores produced different feature widths {widths}")
+    return np.concatenate(parts, axis=0).astype(np.float64)
+
+
+features_app = typer.Typer(help="Build and cache feature tables.")
+app.add_typer(features_app, name="features")
+
+
+@features_app.command("build")
+def features_build(
+    which: str = typer.Option(",".join(CHEAP_FEATURES), help="Comma-separated feature sets."),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    cache: Path = typer.Option(Path("data/features")),
+    device: str = typer.Option(None, help="Device for wav2vec2 embeddings."),
+    rebuild: bool = typer.Option(False, help="Ignore any cached table."),
+) -> None:
+    """Compute feature tables and cache them against the stores they came from."""
+    corpus = _load_corpus(ibl, allen)
+    policy = pick_device(device)
+    for name in [w.strip() for w in which.split(",") if w.strip()]:
+        table = _build_feature_table(corpus, name, cache, policy.device, rebuild)
+        typer.echo(f"{name}: {table.shape}")
+    typer.secho("features ready", fg=typer.colors.GREEN)
+
+
+baselines_app = typer.Typer(help="Run and report the baseline sweep.")
+app.add_typer(baselines_app, name="baselines")
+
+
+@baselines_app.command("run")
+def baselines_run(
+    which: str = typer.Option(",".join(CHEAP_FEATURES), help="Comma-separated feature sets."),
+    models: str = typer.Option("constant,logreg", help="Comma-separated model names."),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    cache: Path = typer.Option(Path("data/features")),
+    out: Path = typer.Option(Path("results/baselines")),
+    device: str = typer.Option(None, help="Device for wav2vec2 embeddings."),
+    seed: int = typer.Option(0),
+) -> None:
+    """Every feature set against every model, across every fold of every scheme."""
+    from lfpaudit.eval.folds import build_schemes
+    from lfpaudit.eval.runner import ExperimentSpec, run_sweep, write_results
+
+    set_seed(seed)
+    corpus = _load_corpus(ibl, allen)
+    policy = pick_device(device)
+    feature_names = [w.strip() for w in which.split(",") if w.strip()]
+
+    tables = {
+        name: _build_feature_table(corpus, name, cache, policy.device, rebuild=False)
+        for name in feature_names
+    }
+    labels = corpus.index["region"].map(REGION_TO_INDEX).to_numpy()
+    positions = {int(cid): i for i, cid in enumerate(corpus.index["chunk_id"])}
+
+    schemes = build_schemes(corpus.index, seed=seed)
+    typer.echo("schemes: " + ", ".join(f"{k} ({len(v)} folds)" for k, v in sorted(schemes.items())))
+
+    manifest = RunManifest.create(
+        experiment="baselines",
+        seed=seed,
+        device=policy.device,
+        config={"features": feature_names, "models": models, "schemes": sorted(schemes)},
+        data_dir=ibl,
+    )
+    manifest.write(out)
+
+    spec = ExperimentSpec(
+        feature_sets=feature_names,
+        models=[m.strip() for m in models.split(",") if m.strip()],
+        seed=seed,
+        save_predictions_for=[k for k in schemes if k.startswith("cross_lab")] + ["loso_ibl"],
+    )
+    table = run_sweep(
+        schemes, tables, labels, positions, spec, predictions_dir=Path(out) / "predictions"
+    )
+    paths = write_results(table, out)
+    manifest.finish(out, status="ok")
+    typer.secho(f"wrote {len(table)} rows to {paths['folds']}", fg=typer.colors.GREEN)
+
+
+@baselines_app.command("table")
+def baselines_table(
+    results: Path = typer.Option(Path("results/baselines")),
+    view: str = typer.Option("4class", help="Class view to report."),
+    out: Path = typer.Option(None, help="Write a markdown document here."),
+) -> None:
+    """Render the baseline results as a readable table."""
+    from lfpaudit.eval.runner import paired_comparison, summarise
+
+    folds = pd.read_csv(results / "folds.csv")
+    summary = summarise(folds)
+    summary = summary[(summary["view"] == view) & (summary["control"] == "model")]
+
+    lines = [f"# Baseline results ({view})", ""]
+    for scheme in sorted(summary["scheme"].unique()):
+        part = summary[summary["scheme"] == scheme].sort_values(
+            "balanced_accuracy", ascending=False
+        )
+        control = folds[
+            (folds["scheme"] == scheme) & (folds["view"] == view) & (folds["control"] == "permuted")
+        ]
+        lines += [
+            f"## `{scheme}`",
+            "",
+            "| features | model | folds | balanced accuracy | chance | above chance | ECE |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+        for row in part.itertuples():
+            spread = (
+                "" if pd.isna(row.balanced_accuracy_sd) else f" ± {row.balanced_accuracy_sd:.3f}"
+            )
+            lines.append(
+                f"| {row.features} | {row.model} | {row.folds} | "
+                f"{row.balanced_accuracy:.3f}{spread} | {row.chance:.3f} | "
+                f"{row.above_chance:+.3f} | {row.ece:.3f} |"
+            )
+        if len(control):
+            lines += [
+                "",
+                f"Permutation controls on the same folds: mean balanced accuracy "
+                f"{control['balanced_accuracy'].mean():.3f} against a mean chance of "
+                f"{control['chance'].mean():.3f}.",
+            ]
+        comparison = paired_comparison(folds, scheme, view)
+        if len(comparison):
+            lines += ["", "Paired across folds (Wilcoxon signed-rank):", ""]
+            lines += [
+                "| a | b | folds | median difference | a wins | p |",
+                "|---|---|---:|---:|---:|---:|",
+            ]
+            for row in comparison.itertuples():
+                lines.append(
+                    f"| {row.a} | {row.b} | {row.folds} | {row.median_difference:+.3f} | "
+                    f"{row.a_wins}/{row.folds} | {row.p_value:.3f} |"
+                )
+        lines.append("")
+
+    text = "\n".join(lines)
+    typer.echo(text)
+    if out is not None:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(text)
+        typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
+
+
+@app.command("lab-discriminator")
+def lab_discriminator(
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    cache: Path = typer.Option(Path("data/features")),
+    out: Path = typer.Option(Path("results/lab_discriminator")),
+    seed: int = typer.Option(0),
+) -> None:
+    """Ask how easily a classifier can tell which lab a chunk came from.
+
+    This turns DEVIATIONS D11 from an observation into a number. If the full band separates the
+    two datasets almost perfectly and a band restricted below 100 Hz does not, the difference
+    bounds how much of any cross-lab result could have been filtering rather than anatomy.
+    """
+    from lfpaudit.eval.folds import leave_one_group_out
+    from lfpaudit.eval.metrics import evaluate
+    from lfpaudit.models.baselines import fit_predict
+
+    set_seed(seed)
+    corpus = _load_corpus(ibl, allen)
+    index = corpus.index
+    positions = {int(cid): i for i, cid in enumerate(index["chunk_id"])}
+    # The label is the dataset, not the region.
+    dataset_label = (index["dataset"] == "allen").astype(int).to_numpy()
+
+    rows = []
+    for name in ("bandpower_full", "bandpower_clean"):
+        table = _build_feature_table(corpus, name, cache, None, rebuild=False)
+        for fold in leave_one_group_out(index, dataset=None, seed=seed):
+            train = np.array([positions[i] for i in fold.split.train], dtype=np.int64)
+            test = np.array([positions[i] for i in fold.split.test], dtype=np.int64)
+            if len(np.unique(dataset_label[train])) < 2:
+                continue
+            probs = fit_predict(
+                "logreg", table[train], dataset_label[train], table[test], seed=seed, n_classes=2
+            )
+            report = evaluate(probs, dataset_label[test], class_names=["ibl", "allen"])
+            rows.append(
+                {
+                    "features": name,
+                    "fold": fold.name,
+                    "n_test": len(test),
+                    "balanced_accuracy": report.balanced_accuracy,
+                    "accuracy": report.accuracy,
+                    "chance": report.chance,
+                }
+            )
+
+    frame = pd.DataFrame(rows)
+    Path(out).mkdir(parents=True, exist_ok=True)
+    frame.to_csv(Path(out) / "folds.csv", index=False)
+    summary = frame.groupby("features")["accuracy"].agg(["mean", "std", "count"])
+    typer.echo(summary.to_string())
+    summary.to_csv(Path(out) / "summary.csv")
+    typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover
