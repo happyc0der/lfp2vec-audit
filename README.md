@@ -4,7 +4,7 @@
 
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
-> **Status: Stage 2 — baselines.** Both datasets are built, and the interpretable floor is measured across 17 leave-one-session-out folds. The wav2vec2 fine-tune is not yet run. Every claim below that is not yet measured is marked *planned*.
+> **Status: Stage 3 — fine-tune.** The reduced LFP2Vec method is trained and scored against every baseline on the same folds. Calibration and ablation analysis is still to come. Every claim below that is not yet measured is marked *planned*.
 
 ## What LFP2Vec is
 
@@ -96,11 +96,43 @@ to **0.478 and 0.631** across labs. A model at chance accuracy reporting high co
 than one that is merely wrong, and this is the failure the paper's own Broader Impact section
 anticipates without measuring.
 
-**What this does not show.** A frozen encoder with a linear head is not LFP2Vec. The published
-method adds self-supervised continuation on unlabelled LFP and then fine-tunes, and either stage
-could suppress the acquisition structure that dominates here. Stage 3 tests exactly that: the
-fine-tune has to clear 0.82 from electrode position to claim it reads physiology, and reduce a
-lab-identity score of 1.000 to claim it transfers.
+## The fine-tune
+
+`facebook/wav2vec2-base` fine-tuned on IBL, 23,900 class-balanced chunks, nine epochs, scored on
+all ten Allen probes. Full tables in [`docs/RESULTS_FINETUNE.md`](docs/RESULTS_FINETUNE.md).
+
+| measure | value | reference |
+|---|---:|---|
+| within-lab validation | **0.801** | electrode position alone reaches 0.817 |
+| cross-lab, mean of 10 probes | **0.340** | chance on those probes is 0.358 |
+| calibration error, cross-lab | **0.556** | the frozen checkpoint scored 0.478 |
+| negative log-likelihood, cross-lab | **4.76** | a uniform predictor scores 1.39 |
+| lab identity after fine-tuning | **0.997** | before fine-tuning it was 1.000 |
+
+**Within lab it is level with electrode position, and does not exceed it.** A 95-million-parameter
+model reaches 0.801 where four numbers describing where the contact sits reach 0.817.
+
+**Across labs it is at chance, and confident.** Not one of the ten target probes exceeded its own
+chance level. Presented with the other lab's recordings the model predicts visual cortex for
+**93.9%** of chunks at **0.98** mean confidence, where the true share is 45%. That is not
+degradation; it is a decision boundary fitted in one region of representation space being handed
+inputs that all fall in another.
+
+**The reason is measured, not inferred.** Nine epochs of supervised training on region labels
+moved the lab-identity score from 1.000 to 0.997. Whatever encodes which rig produced a recording
+survives fine-tuning intact, and while it does, a boundary learned in one lab cannot mean anything
+in the other.
+
+Cross-lab, the fine-tune scores below every baseline in the table above, including the same
+checkpoint with nothing trained at all.
+
+**What this does not show.** This is the reduced method: audio initialisation plus supervised
+fine-tuning, without the self-supervised continuation on unlabelled LFP that the published work
+runs (see [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D1). That stage is the most plausible
+candidate for removing acquisition structure, precisely because it trains on pooled unlabelled
+data rather than on one lab's labels, and nothing here tests it. No pretrained weights have been
+released, so the published numbers cannot be checked directly. These are results for what can be
+reproduced on public data with laptop-class compute, with every control on the same folds.
 
 ## Planned experiments
 
@@ -108,7 +140,7 @@ lab-identity score of 1.000 to claim it transfers.
 |---|---|---|
 | 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
 | 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | **done** |
-| 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | planned |
+| 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | **in progress** |
 | 4 | Temperature scaling, band-stop and phase-randomisation ablations, band attribution | planned |
 | 5 | Selective prediction: risk–coverage under shift | planned |
 | 6 | Two-page note and figures | planned |
