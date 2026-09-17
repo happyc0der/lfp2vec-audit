@@ -374,4 +374,66 @@ the same metrics, so the comparison will be direct.
   a class view is applied, and an optimisation failure would be indistinguishable in the results
   table from an absence of signal.
 
+---
+
+## 2026-09-17 (evening) — Stage 3: the fine-tune, first direction
+
+Fine-tuned `facebook/wav2vec2-base` on IBL, 23 900 class-balanced chunks, and scored all ten
+Allen probes. Nine epochs, stopped early, 16.5 minutes each on MPS at 25.5 chunks per second.
+The gate measured that rate before the run started and passed it against a three-hour budget.
+
+### The numbers
+
+| | value | reference |
+|---|---:|---|
+| within-lab validation, best epoch | **0.801** | electrode position alone reaches 0.817 |
+| cross-lab test, mean over 10 probes | **0.340** | chance on those probes is 0.358 |
+| expected calibration error, cross-lab | **0.556** | the frozen checkpoint scored 0.478 |
+| negative log-likelihood, cross-lab | **4.76** | a uniform predictor scores 1.39 |
+| lab identity after fine-tuning | **0.997** | before fine-tuning it was 1.000 |
+
+Not one of the ten target probes exceeded its own chance level.
+
+### What the model actually does on the other lab
+
+Presented with Allen recordings it predicts visual cortex for **93.9%** of chunks, at a mean
+softmax confidence of **0.98**. The true share of visual cortex in that test set is 45%.
+
+That is not degradation. It is a classifier whose decision boundary was fitted in one region of
+representation space being handed inputs that all fall in another, and answering with whichever
+label that region happens to carry. The behaviour follows directly from the probe result.
+
+### The measurement that explains it
+
+Nine epochs of supervised training on region labels moved the lab-identity score from 1.000 to
+0.997. Essentially nothing. Whatever in the representation encodes which rig produced a
+recording survives fine-tuning intact, and as long as it does, a boundary learned in one lab
+cannot mean anything in the other.
+
+This was the question Stage 2 raised and could not answer, and it now has a number.
+
+### What this is and is not
+
+It is a result for the reduced method: audio initialisation plus supervised fine-tuning, without
+the self-supervised continuation stage the published work runs on unlabelled LFP (D1). That
+stage is the most plausible candidate for removing acquisition structure, precisely because it
+trains on pooled unlabelled data rather than on one lab's labels, and nothing here tests it.
+
+It is one direction, one seed. The reverse direction is running.
+
+What it does establish, on public data with every control on the same folds:
+
+- The fine-tune reaches 0.801 within lab, which is level with what four numbers describing
+  electrode position achieve, and does not exceed it.
+- Cross-lab it is at chance while reporting 0.98 confidence, which is worse than being wrong.
+- The reason is measurable rather than speculative, and it is not fixed by fine-tuning.
+
+### Method note
+
+The trainer's early stopping watches a held-out *group*, not a random slice, so the stopping
+decision cannot leak across sessions. Validation balanced accuracy was not monotonic: 0.621,
+0.694, 0.671, 0.772, 0.800, 0.760, 0.801, 0.801, 0.740. A patience of one would have stopped at
+epoch 2 and reported 0.694 instead of 0.801, understating the model by a tenth for no reason
+other than noise.
+
 
