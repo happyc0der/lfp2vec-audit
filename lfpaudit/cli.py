@@ -1,9 +1,10 @@
 """Command line entry point: ``lfpaudit <command>``.
 
-Stage 0 exposes three commands. ``info`` reports the resolved device and versions, ``smoke``
-runs the whole pipeline end to end on synthetic data, and ``verify-split`` re-checks a saved
-split for leakage. Later stages add data, baseline, training and figure commands; the Makefile
-already lists them so the intended surface is visible.
+Commands fall into three groups. ``info``, ``smoke`` and ``verify-split`` check that the machine
+and the pipeline work. ``data``, ``card`` and ``inspect`` build and describe chunk stores from
+the public datasets. ``make-splits`` and ``real-smoke`` turn those stores into the verified
+partitions every later experiment runs on. The Makefile lists the not-yet-implemented commands
+too, so the intended surface stays visible.
 """
 
 from __future__ import annotations
@@ -20,6 +21,10 @@ from sklearn.linear_model import LogisticRegression
 
 from lfpaudit import REGION_TO_INDEX, __version__
 from lfpaudit.config import set_seed
+from lfpaudit.data.card import DatasetCard
+from lfpaudit.data.chunk import ChunkStore
+from lfpaudit.data.corpus import Corpus
+from lfpaudit.data.inspect import inspection_figure
 from lfpaudit.data.manifest import RunManifest
 from lfpaudit.data.splits import Split, make_split, verify_no_leakage
 from lfpaudit.data.synthetic import SyntheticSpec, build_synthetic_store
@@ -145,6 +150,192 @@ def smoke(
             typer.secho(f"GATE FAILED: {message}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     typer.secho(f"smoke passed on {policy.device}; wrote {run_dir}", fg=typer.colors.GREEN)
+
+
+data_app = typer.Typer(help="Build chunk stores from the public datasets.")
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("ibl")
+def data_ibl(
+    out: Path = typer.Option(Path("data/stores/ibl"), help="Where to write the store."),
+    insertions: int = typer.Option(0, help="How many insertions to build; 0 means all."),
+    start_s: float = typer.Option(200.0, help="Seconds into the recording the first chunk starts."),
+    window_s: float = typer.Option(3.0, help="Chunk length in seconds."),
+    chunks: int = typer.Option(100, help="Chunks per channel."),
+    cache: Path = typer.Option(Path("data/ibl-cache"), help="Download cache directory."),
+) -> None:
+    """Fetch, preprocess and chunk IBL insertions."""
+    from lfpaudit.data.ibl import PAPER_INSERTIONS, build_ibl_store
+
+    chosen = PAPER_INSERTIONS[:insertions] if insertions else PAPER_INSERTIONS
+    store, card = build_ibl_store(
+        out,
+        insertions=chosen,
+        cache_dir=cache,
+        window_s=window_s,
+        start_s=start_s,
+        chunks_per_channel=chunks,
+    )
+    typer.echo(card.to_markdown())
+    typer.secho(f"wrote {len(store.index)} chunks to {out}", fg=typer.colors.GREEN)
+
+
+@data_app.command("allen")
+def data_allen(
+    out: Path = typer.Option(Path("data/stores/allen"), help="Where to write the store."),
+    sessions: str = typer.Option("719161530,798911424", help="Comma-separated session ids."),
+    start_s: float = typer.Option(200.0, help="Seconds into the recording the first chunk starts."),
+    window_s: float = typer.Option(3.0, help="Chunk length in seconds."),
+    chunks: int = typer.Option(100, help="Chunks per channel."),
+    cache: Path = typer.Option(Path("data/allen-cache"), help="Local copies, if any."),
+) -> None:
+    """Read Allen probe files and chunk them."""
+    from lfpaudit.data.allen import build_allen_store
+
+    store, card = build_allen_store(
+        out,
+        sessions=[int(s) for s in sessions.split(",") if s.strip()],
+        cache_dir=cache,
+        window_s=window_s,
+        start_s=start_s,
+        chunks_per_channel=chunks,
+    )
+    typer.echo(card.to_markdown())
+    typer.secho(f"wrote {len(store.index)} chunks to {out}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def card(store_path: Path = typer.Argument(..., help="Path to a chunk store.")) -> None:
+    """Print a store's dataset card."""
+    path = Path(store_path) / "card.json"
+    record = (
+        DatasetCard.read(path)
+        if path.exists()
+        else DatasetCard.from_store(ChunkStore.open(store_path))
+    )
+    typer.echo(record.to_markdown())
+
+
+@app.command()
+def inspect(
+    store_path: Path = typer.Argument(..., help="Path to a chunk store."),
+    out: Path = typer.Option(None, help="Output image path."),
+    per_region: int = typer.Option(4, help="Example chunks per region."),
+    seed: int = typer.Option(0, help="Sampling seed."),
+) -> None:
+    """Plot sampled chunks and per-region spectra for a human to look at."""
+    store = ChunkStore.open(store_path)
+    target = out or Path("docs/figures") / f"inspect_{Path(store_path).name}.png"
+    written = inspection_figure(store, target, n_per_region=per_region, seed=seed)
+    typer.secho(f"wrote {written}", fg=typer.colors.GREEN)
+
+
+@app.command("make-splits")
+def make_splits(
+    ibl: Path = typer.Option(Path("data/stores/ibl"), help="IBL store."),
+    allen: Path = typer.Option(Path("data/stores/allen"), help="Allen store."),
+    out: Path = typer.Option(Path("experiments/splits"), help="Where to write split JSONs."),
+    seed: int = typer.Option(0, help="Split seed."),
+) -> None:
+    """Write and verify every split the later experiments use."""
+    out.mkdir(parents=True, exist_ok=True)
+    corpus = Corpus.load({"ibl": ibl, "allen": allen})
+    index = corpus.index
+
+    wanted = {
+        "in_session_ibl": dict(kind="in_session", subset="ibl"),
+        "cross_session_ibl": dict(kind="cross_session", subset="ibl"),
+        "cross_session_allen": dict(kind="cross_session", subset="allen"),
+        "cross_lab_ibl_to_allen": dict(
+            kind="cross_lab", train_datasets=["ibl"], test_datasets=["allen"]
+        ),
+        "cross_lab_allen_to_ibl": dict(
+            kind="cross_lab", train_datasets=["allen"], test_datasets=["ibl"]
+        ),
+    }
+
+    for name, spec in wanted.items():
+        spec = dict(spec)
+        subset = spec.pop("subset", None)
+        frame = index[index["dataset"] == subset] if subset else index
+        split = make_split(frame, seed=seed, **spec)
+        sizes = verify_no_leakage(split, index)
+        split.to_json(out / f"{name}.json")
+        typer.echo(f"{name}: {sizes} groups test={split.test_groups}")
+    typer.secho(f"wrote {len(wanted)} verified splits to {out}", fg=typer.colors.GREEN)
+
+
+@app.command("real-smoke")
+def real_smoke(
+    split_path: Path = typer.Argument(..., help="A split JSON from make-splits."),
+    ibl: Path = typer.Option(Path("data/stores/ibl"), help="IBL store."),
+    allen: Path = typer.Option(Path("data/stores/allen"), help="Allen store."),
+    out: Path = typer.Option(Path("results/real_smoke"), help="Run directory root."),
+    seed: int = typer.Option(0, help="Random seed."),
+) -> None:
+    """Fit the interpretable baseline on real data, with the same gates as the synthetic smoke.
+
+    This is the last check before any model training: it proves the labels in a real store carry
+    recoverable signal, and that the signal disappears when the labels are shuffled.
+    """
+    set_seed(seed)
+    corpus = Corpus.load({"ibl": ibl, "allen": allen})
+    split = Split.from_json(split_path)
+    sizes = verify_no_leakage(split, corpus.index)
+    typer.echo(f"{split.kind} split verified clean: {sizes}")
+
+    manifest = RunManifest.create(
+        experiment=f"real_smoke_{Path(split_path).stem}",
+        seed=seed,
+        device="cpu",
+        config={"split": str(split_path), "kind": split.kind},
+        data_dir=ibl,
+    )
+    run_dir = Path(out) / manifest.run_id
+    manifest.write(run_dir)
+
+    def features_and_labels(ids: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        waveforms = corpus.take(ids)
+        rows = corpus.positions(ids)
+        labels = corpus.index.iloc[rows]["region"].map(REGION_TO_INDEX).to_numpy()
+        return band_power(waveforms, fs=corpus.fs), labels
+
+    train_x, train_y = features_and_labels(split.train)
+    test_x, test_y = features_and_labels(split.test)
+
+    model = LogisticRegression(max_iter=2000)
+    model.fit(train_x, train_y)
+    report = evaluate(model.predict_proba(test_x), test_y)
+
+    rng = np.random.default_rng(seed)
+    permuted = LogisticRegression(max_iter=2000)
+    permuted.fit(train_x, rng.permutation(train_y))
+    control = evaluate(permuted.predict_proba(test_x), test_y)
+
+    typer.echo(f"band-power LR : {report.summary_line()}")
+    typer.echo(f"permuted label: {control.summary_line()}")
+    typer.echo(f"per-class recall: {report.per_class_recall}")
+
+    chance = 1.0 / len(report.class_names)
+    failures = []
+    if report.balanced_accuracy <= chance + 0.05:
+        failures.append(f"balanced accuracy {report.balanced_accuracy:.3f} is at chance")
+    if control.balanced_accuracy > chance + 0.10:
+        failures.append(f"permutation control {control.balanced_accuracy:.3f} is above chance")
+
+    (run_dir / "metrics.json").write_text(
+        json.dumps(
+            {"model": report.to_dict(), "permutation_control": control.to_dict(), "chance": chance},
+            indent=2,
+        )
+    )
+    manifest.finish(run_dir, status="failed" if failures else "ok")
+    if failures:
+        for message in failures:
+            typer.secho(f"GATE FAILED: {message}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    typer.secho(f"real smoke passed; wrote {run_dir}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover

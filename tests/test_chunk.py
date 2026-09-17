@@ -73,8 +73,9 @@ def test_store_roundtrip(tmp_path):
     store = ChunkStore.open(tmp_path / "store")
     assert len(store.index) == 4
     assert store.index["region"].unique().tolist() == ["CA1"]
+    # Chunks are stored normalised, so the raw waveform comes back via the recorded scale.
     # float16 storage is lossy by design; the tolerance reflects that, not a bug.
-    np.testing.assert_allclose(store.take([0, 1, 2, 3]), payload, atol=1e-3)
+    np.testing.assert_allclose(store.take([0, 1, 2, 3], microvolts=True), payload, atol=1e-2)
 
 
 def test_writer_rejects_non_finite_values(tmp_path):
@@ -88,3 +89,78 @@ def test_writer_rejects_wrong_width(tmp_path):
     with ChunkWriter(tmp_path / "store", n_samples=4, fs=100.0) as writer:
         with pytest.raises(ValueError, match="expected chunks of shape"):
             writer.append(np.zeros((1, 5)), {"dataset": "d"}, t0_s=[0.0])
+
+
+def test_normalisation_is_reversible_from_the_index(tmp_path):
+    """Storing the removed mean and scale is what lets the amplitude ablation exist."""
+    rng = np.random.default_rng(3)
+    payload = rng.normal(loc=120.0, scale=35.0, size=(4, 32))
+    meta = {
+        "dataset": "ibl",
+        "session": "s0",
+        "probe": "probe00",
+        "channel": 1,
+        "depth_um": 40.0,
+        "acronym": "CA1",
+        "region": "CA1",
+        "group": "s0",
+    }
+    with ChunkWriter(tmp_path / "store", n_samples=32, fs=1250.0) as writer:
+        writer.append(payload, meta, t0_s=np.arange(4, dtype=float))
+
+    store = ChunkStore.open(tmp_path / "store")
+    stored = store.take([0, 1, 2, 3])
+    np.testing.assert_allclose(stored.mean(axis=1), 0.0, atol=1e-2)
+    np.testing.assert_allclose(stored.std(axis=1), 1.0, atol=1e-2)
+
+    restored = store.take([0, 1, 2, 3], microvolts=True)
+    np.testing.assert_allclose(restored, payload, rtol=2e-3)
+    np.testing.assert_allclose(store.index["scale_mean_uv"], payload.mean(axis=1), rtol=1e-6)
+    np.testing.assert_allclose(store.index["scale_std_uv"], payload.std(axis=1), rtol=1e-6)
+
+
+def test_flat_chunks_are_dropped_not_stored(tmp_path):
+    """Released Allen probe files can be entirely zeros; those must not enter a store."""
+    meta = {
+        "dataset": "allen",
+        "session": "719161530",
+        "probe": "probeD",
+        "channel": 0,
+        "depth_um": 40.0,
+        "acronym": "CA1",
+        "region": "CA1",
+        "group": "719161530_probeD",
+    }
+    payload = np.vstack([np.zeros(16), np.arange(16, dtype=float), np.zeros(16)])
+    with ChunkWriter(tmp_path / "store", n_samples=16, fs=1250.0) as writer:
+        written = writer.append(payload, meta, t0_s=[0.0, 3.0, 6.0])
+
+    assert written == 1
+    store = ChunkStore.open(tmp_path / "store")
+    assert len(store.index) == 1
+    assert store.index["t0_s"].iloc[0] == 3.0
+
+
+def test_optional_geometry_columns_are_kept(tmp_path):
+    meta = {
+        "dataset": "ibl",
+        "session": "s0",
+        "probe": "probe00",
+        "channel": 0,
+        "depth_um": 20.0,
+        "acronym": "DG",
+        "region": "DG",
+        "group": "s0",
+        "lateral_um": 43.0,
+        "ccf_ap_um": -2175.0,
+        "ccf_dv_um": -4148.0,
+        "ccf_lr_um": -1464.0,
+    }
+    rng = np.random.default_rng(4)
+    with ChunkWriter(tmp_path / "store", n_samples=16, fs=1250.0) as writer:
+        writer.append(rng.normal(size=(2, 16)), meta, t0_s=[0.0, 3.0])
+
+    index = ChunkStore.open(tmp_path / "store").index
+    for column in ("lateral_um", "ccf_ap_um", "ccf_dv_um", "ccf_lr_um"):
+        assert column in index.columns
+    assert index["ccf_ap_um"].iloc[0] == -2175.0
