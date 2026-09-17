@@ -463,4 +463,43 @@ available and the worst possible one across labs, and nothing in a within-lab ev
 it. The only measurement that anticipates the failure is the one nobody runs: asking what else
 the representation knows.
 
+### The leakage control, and what it accidentally shows
+
+Two epochs of the same fine-tune with the training labels shuffled:
+
+| | permuted labels | real labels |
+|---|---:|---:|
+| training loss | 1.376 | 0.165 |
+| validation balanced accuracy | 0.250 | 0.801 |
+| cross-lab balanced accuracy | 0.250 | 0.340 |
+| **calibration error** | **0.118** | **0.535** |
+| negative log-likelihood | 1.333 | 4.76 |
+| lab identity | 1.000 | 0.997 |
+
+The control behaves exactly as it should. Training loss sits at 1.376 against the 1.386 that is
+the entropy of four equally likely classes, so nothing is being learned, and both validation and
+test land precisely on chance. The splits are sound.
+
+Two things fall out of it that are worth more than the control itself.
+
+The permuted model is **four and a half times better calibrated than the real one**. It knows
+nothing and reports that it knows nothing, so its confidence matches its accuracy almost exactly.
+The trained model is equally wrong across labs and reports 0.98 confidence. The problem was never
+the accuracy, which is the same in both; it is that only one of them is honest about it.
+
+And lab identity stays at 1.000 under permuted labels. The acquisition structure is not something
+the region task induced, and not something a different objective would have avoided. It is in the
+representation before any supervision, and supervision does not disturb it.
+
+### A caveat on the within-lab number, and what fixes it
+
+The 0.801 above is the **validation** score on a held-out IBL group, and that group was used for
+early stopping. It is a within-lab number, but an optimistic one, and it is not directly
+comparable with the 0.817 that electrode position achieves on clean held-out test folds.
+
+The honest comparison needs the within-lab leave-one-session-out scheme, where the scored group
+is never touched by the stopping decision. That is the next tier, and until it runs the correct
+statement is that the fine-tune reaches roughly 0.80 on a group it was allowed to stop on, which
+is at best level with position and may be below it.
+
 

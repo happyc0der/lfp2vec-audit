@@ -1,0 +1,2 @@
+{"epoch": 0, "train_loss": 1.3907061550833961, "val_balanced_accuracy": 0.25, "val_loss": 1.316512215157252, "seconds": 1084.8050379753113, "learning_rate": 1.6661277283751012e-05, "improved": true, "extra": {"val_chance": 0.25, "val_classes": ["CA1", "CA3", "DG", "VIS"]}}
+{"epoch": 1, "train_loss": 1.3758764406984503, "val_balanced_accuracy": 0.25, "val_loss": 1.3201389070838159, "seconds": 1086.4069409370422, "learning_rate": 0.0, "improved": false, "extra": {"val_chance": 0.25, "val_classes": ["CA1", "CA3", "DG", "VIS"]}}

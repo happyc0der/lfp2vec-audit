@@ -103,17 +103,21 @@ all ten Allen probes. Full tables in [`docs/RESULTS_FINETUNE.md`](docs/RESULTS_F
 
 | measure | value | reference |
 |---|---:|---|
-| within-lab validation | **0.801** | electrode position alone reaches 0.817 |
+| within-lab validation* | **0.801** | electrode position alone reaches 0.817 |
 | cross-lab, mean of 10 probes | **0.340** | chance on those probes is 0.358 |
 | calibration error, cross-lab | **0.556** | the frozen checkpoint scored 0.478 |
 | negative log-likelihood, cross-lab | **4.76** | a uniform predictor scores 1.39 |
 | lab identity after fine-tuning | **0.997** | before fine-tuning it was 1.000 |
 
-**Within lab it is level with electrode position, and does not exceed it.** A 95-million-parameter
-model reaches 0.801 where four numbers describing where the contact sits reach 0.817.
+\* That within-lab figure is a **validation** score on a group that was also used for early
+stopping, so it is optimistic and not directly comparable with the 0.817 position achieves on
+clean test folds. The honest within-lab comparison needs the leave-one-session-out scheme and is
+still running. The correct present statement is that the fine-tune reaches roughly 0.80 on a group
+it was allowed to stop on, which is at best level with position.
 
-**Across labs it is at chance, and confident.** Not one of the ten target probes exceeded its own
-chance level. Presented with the other lab's recordings the model predicts visual cortex for
+**Across labs it is at chance, and confident.**
+
+Not one of the ten target probes exceeded its own chance level. Presented with the other lab's recordings the model predicts visual cortex for
 **93.9%** of chunks at **0.98** mean confidence, where the true share is 45%. That is not
 degradation; it is a decision boundary fitted in one region of representation space being handed
 inputs that all fall in another.
