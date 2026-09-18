@@ -116,6 +116,51 @@ def embed(model, dataset, device: str, batch_size: int, num_workers: int = 0) ->
     return np.concatenate(out)
 
 
+def predict_with_embeddings(model, dataset, device: str, batch_size: int, num_workers: int = 0):
+    """Logits, labels and pooled embeddings in one pass.
+
+    Stage 3 saved logits but not embeddings, which left temperature scaling and any
+    representation-based abstention unanswerable without retraining. Producing both together
+    costs one forward pass instead of two and removes the reason that happened again.
+    """
+    import torch
+
+    from lfpaudit.models.lfp2vec_lite import pooled_embeddings
+
+    model.eval()
+    logits_out: list[np.ndarray] = []
+    labels_out: list[np.ndarray] = []
+    embeddings_out: list[np.ndarray] = []
+    with torch.no_grad():
+        for waveforms, labels in _loader(dataset, batch_size, False, num_workers, 0):
+            batch = waveforms.to(device)
+            logits_out.append(model(batch).logits.float().cpu().numpy())
+            embeddings_out.append(pooled_embeddings(model, batch))
+            labels_out.append(labels.numpy())
+    return (
+        np.concatenate(logits_out),
+        np.concatenate(labels_out),
+        np.concatenate(embeddings_out),
+    )
+
+
+def load_model(run_dir: str | Path, device: str = "cpu"):
+    """Reload a fine-tuned model saved by a run, for post-hoc analysis."""
+    from pathlib import Path as _Path
+
+    from transformers import Wav2Vec2ForSequenceClassification
+
+    path = _Path(run_dir) / "model"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} does not exist; the run was made before --save-model, so its weights are gone"
+        )
+    model = Wav2Vec2ForSequenceClassification.from_pretrained(path)
+    model.eval()
+    model.to(device)
+    return model
+
+
 def train(
     model,
     train_dataset,

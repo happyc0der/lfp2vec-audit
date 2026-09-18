@@ -757,6 +757,9 @@ def finetune_run(
     batch_size: int = typer.Option(8),
     lowpass: float = typer.Option(None, help="Low-pass corner in Hz for the harmonised band."),
     permute_labels: bool = typer.Option(False, help="Shuffle training labels: a leakage check."),
+    save_model: bool = typer.Option(
+        False, help="Persist weights so later stages can ablate without retraining."
+    ),
     max_rate_check: bool = typer.Option(True, help="Measure throughput before committing."),
     budget_hours: float = typer.Option(3.0, help="Refuse to start if the estimate exceeds this."),
 ) -> None:
@@ -770,7 +773,7 @@ def finetune_run(
         FineTuneConfig,
         embed,
         measure_throughput,
-        predict,
+        predict_with_embeddings,
         train,
     )
 
@@ -887,7 +890,9 @@ def finetune_run(
 
     history = train(model, train_set, val_set, config, policy.device, run_dir)
 
-    logits, test_y = predict(model, test_set, policy.device, config.batch_size)
+    logits, test_y, test_embeddings = predict_with_embeddings(
+        model, test_set, policy.device, config.batch_size
+    )
     probs = softmax(logits)
     metrics = {}
     for view, allowed in CLASS_VIEWS.items():
@@ -938,6 +943,29 @@ def finetune_run(
                 }
             )
     pd.DataFrame(per_group).to_csv(run_dir / "per_group.csv", index=False)
+
+    # Everything a post-hoc stage needs, so calibration, abstention and ablation never require
+    # retraining. Stage 3 saved only test logits and had to be re-run to answer those questions.
+    np.save(run_dir / "test_embeddings.npy", test_embeddings.astype(np.float32))
+
+    val_logits, val_y, val_embeddings = predict_with_embeddings(
+        model, val_set, policy.device, config.batch_size
+    )
+    val_frame = pd.DataFrame(
+        {
+            "chunk_id": ids[val_rows],
+            "label": val_y,
+            "group": index.iloc[val_rows]["group"].to_numpy(),
+        }
+    )
+    for i, region in enumerate(REGIONS):
+        val_frame[f"logit_{region}"] = val_logits[:, i].astype(np.float32)
+    val_frame.to_parquet(run_dir / "val_predictions.parquet", index=False)
+    np.save(run_dir / "val_embeddings.npy", val_embeddings.astype(np.float32))
+
+    if save_model:
+        model.save_pretrained(run_dir / "model")
+        typer.echo(f"saved weights to {run_dir / 'model'}")
 
     # The other half of the audit: does fine-tuning remove the acquisition structure that made
     # the frozen representation useless across labs?
