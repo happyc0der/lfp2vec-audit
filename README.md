@@ -109,13 +109,8 @@ all ten Allen probes. Full tables in [`docs/RESULTS_FINETUNE.md`](docs/RESULTS_F
 | negative log-likelihood, cross-lab | **4.76** | a uniform predictor scores 1.39 |
 | lab identity after fine-tuning | **0.997** | before fine-tuning it was 1.000 |
 
-\* That within-lab figure is a **validation** score on a group that was also used for early
-stopping, so it is optimistic and not directly comparable with the 0.817 position achieves on
-clean test folds. The honest within-lab comparison needs the leave-one-session-out scheme and is
-still running. The correct present statement is that the fine-tune reaches roughly 0.80 on a group
-it was allowed to stop on, which is at best level with position.
-
-**Across labs it is at chance, and confident.**
+\* That figure is a **validation** score on a group also used for early stopping. The clean
+within-lab comparison is the table further down.
 
 Not one of the ten target probes exceeded its own chance level. Presented with the other lab's recordings the model predicts visual cortex for
 **93.9%** of chunks at **0.98** mean confidence, where the true share is 45%. That is not
@@ -129,6 +124,45 @@ in the other.
 
 Cross-lab, the fine-tune scores below every baseline in the table above, including the same
 checkpoint with nothing trained at all.
+
+![finetune](docs/figures/finetune.png)
+
+### Within lab, paired on the same three held-out sessions
+
+Each session took no part in training or in the stopping decision.
+
+| method | balanced accuracy | vs fine-tune | fine-tune wins |
+|---|---:|---:|---:|
+| **electrode position** | **0.856** | −0.140 | 1 of 3 |
+| fine-tuned wav2vec2 | 0.716 | — | — |
+| frozen audio model | 0.709 | +0.007 | 2 of 3 |
+| amplitude only | 0.593 | +0.122 | 3 of 3 |
+| band power, full | 0.479 | +0.236 | 3 of 3 |
+
+**Fine-tuning clearly beats hand-designed features**, by 0.24 over band power and 0.12 over
+amplitude, winning every fold against both. The audio prior plus supervision does something a
+six-number spectral summary cannot, which is a point against the interpretability argument made
+by LFP-LOC.
+
+**Fine-tuning barely beats doing nothing.** Against the same checkpoint with no training at all
+the difference is **+0.007**, on two folds of three. Nine epochs on twenty-four thousand chunks,
+two and a half hours per fold, buys almost nothing over running the untouched audio model forward
+into a linear classifier.
+
+**Electrode position is ahead of all of it** by 0.140, winning two folds of three.
+
+Three folds is too few for a signed-rank test to mean anything, so this reports differences and
+win counts rather than a p-value that would be theatre at that sample size.
+
+### The leakage control, and what it shows by accident
+
+Two epochs with the training labels shuffled: training loss 1.376 against the 1.386 entropy of
+four equal classes, validation and test both exactly at chance. The splits are sound.
+
+It also produced the sharpest single comparison in the project. The permuted model's calibration
+error is **0.118**; the real model's, across labs, is **0.535**. The permuted model knows nothing
+and says so. The trained model is equally wrong across labs and reports 0.98 confidence. The
+accuracy is the same. Only one of them is honest about it.
 
 **What this does not show.** This is the reduced method: audio initialisation plus supervised
 fine-tuning, without the self-supervised continuation on unlabelled LFP that the published work

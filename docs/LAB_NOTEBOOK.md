@@ -533,4 +533,60 @@ process is burning processor time, not that a log file is quiet.
 Nothing scientific was lost. Tier 1 was already complete and committed, and the first within-lab
 fold had finished. The cost was a day of an idle laptop.
 
+### Within-lab, paired on the sessions both actually covered
+
+Three leave-one-session-out folds, each scoring an insertion that took no part in training or in
+the stopping decision. Compared against the Stage 2 baselines on those same three sessions:
+
+| method | balanced accuracy | difference from fine-tune | fine-tune wins |
+|---|---:|---:|---:|
+| **electrode position** | **0.856** | −0.140 | 1 of 3 |
+| fine-tuned wav2vec2 | 0.716 | — | — |
+| frozen audio model | 0.709 | +0.007 | 2 of 3 |
+| amplitude only | 0.593 | +0.122 | 3 of 3 |
+| band power, full | 0.479 | +0.236 | 3 of 3 |
+| band power ≤100 Hz | 0.429 | +0.287 | 3 of 3 |
+
+Per fold, to show how much sessions differ:
+
+| session | chance | geometry | frozen | fine-tuned |
+|---|---:|---:|---:|---:|
+| 0802ced5_probe00 | 0.250 | 0.627 | 0.578 | 0.631 |
+| 0802ced5_probe01 | 0.333 | 0.947 | 0.775 | 0.697 |
+| 0a018f12_probe00 | 0.333 | 0.994 | 0.775 | 0.819 |
+
+Two things here, and the second is the one that matters.
+
+**Fine-tuning clearly beats hand-designed features.** It is ahead of band power by 0.24 and of
+amplitude by 0.12, winning every fold against both. Whatever the audio prior plus supervision is
+doing, it is not reducible to a six-number spectral summary, and the interpretability argument
+LFP-LOC makes against this family of model does not get to claim otherwise.
+
+**Fine-tuning barely beats doing nothing.** Against the same checkpoint with no training at all,
+the difference is **+0.007**, on two folds of three. Nine epochs on twenty-four thousand chunks,
+about two and a half hours per fold, buys effectively nothing over running the untouched audio
+model forward into a linear classifier.
+
+And electrode position is ahead of all of it, by 0.140, on two folds of three.
+
+Three folds is too few for a signed-rank test to say anything, so the table reports differences
+and win counts rather than a p-value that would be theatre at this sample size.
+
+### Stage 3, assembled
+
+| | within lab (3 folds) | cross lab (both directions) |
+|---|---:|---:|
+| electrode position | 0.856 | 0.628 / 0.521 |
+| fine-tuned wav2vec2 | 0.716 | 0.340 / 0.302 |
+| frozen audio model | 0.709 | 0.377 / 0.304 |
+| chance | ~0.31 | 0.358 / 0.298 |
+| fine-tune calibration error | 0.19 | 0.54 / 0.66 |
+| lab identity after fine-tuning | 0.985–0.997 | 0.994–0.997 |
+
+The reduced method is a real model within a lab: better than every hand-designed feature, though
+not better than its own starting point by any margin worth two hours, and behind electrode
+position throughout. Across labs it is at chance in both directions, the worst of everything
+tested, and the most confident of everything tested. Its representation identifies the source lab
+at essentially perfect discrimination after training, exactly as it did before.
+
 
