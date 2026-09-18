@@ -1,0 +1,1 @@
+{"epoch": 0, "train_loss": 1.0199847175520782, "val_balanced_accuracy": 0.6134461575054229, "val_loss": 0.5217691924526369, "seconds": 1020.9123339653015, "learning_rate": 3e-05, "improved": true, "extra": {"val_chance": 0.25, "val_classes": ["CA1", "CA3", "DG", "VIS"]}}

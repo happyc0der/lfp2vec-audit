@@ -1045,6 +1045,42 @@ def finetune_report(
                     lines.append(f"| {name} | {row['balanced_accuracy']:.3f} | {row['ece']:.3f} |")
                 lines.append("")
 
+    # Within-lab schemes produce one run per held-out session, so the comparison against the
+    # baselines has to be paired on those sessions. Comparing a few folds against a mean over all
+    # of them measures which sessions happened to be run, not which method is better.
+    baseline_path = Path(baselines) / "folds.csv"
+    for scheme in sorted(table["scheme"].unique()):
+        if not scheme.startswith("loso") or not baseline_path.exists():
+            continue
+        tuned = table[(table["scheme"] == scheme) & (~table["permuted"])].set_index("group")[
+            "balanced_accuracy"
+        ]
+        if len(tuned) < 2:
+            continue
+        folds = pd.read_csv(baseline_path)
+        reference = folds[
+            (folds["scheme"] == scheme)
+            & (folds["view"] == view)
+            & (folds["model"] == "logreg")
+            & (folds["control"] == "model")
+        ]
+        lines += [
+            f"### `{scheme}`: paired against the baselines on the same {len(tuned)} sessions",
+            "",
+            "| features | baseline | fine-tune | difference | fine-tune wins |",
+            "|---|---:|---:|---:|---:|",
+        ]
+        for name, part in reference.groupby("features"):
+            shared = part.set_index("fold")["balanced_accuracy"].reindex(tuned.index).dropna()
+            if len(shared) < 2:
+                continue
+            difference = tuned.reindex(shared.index) - shared
+            lines.append(
+                f"| {name} | {shared.mean():.3f} | {tuned.reindex(shared.index).mean():.3f} | "
+                f"{difference.mean():+.3f} | {int((difference > 0).sum())}/{len(difference)} |"
+            )
+        lines.append("")
+
     permuted = table[table["permuted"]]
     if len(permuted):
         lines += [
