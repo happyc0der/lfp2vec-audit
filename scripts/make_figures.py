@@ -8,6 +8,7 @@ figure can never drift from the experiment that produced it.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib
@@ -228,6 +229,9 @@ def main() -> None:
     parser.add_argument("--discriminator", type=Path, default=Path("results/lab_discriminator"))
     parser.add_argument("--out", type=Path, default=Path("docs/figures"))
     parser.add_argument("--finetune", type=Path, default=Path("results/finetune"))
+    parser.add_argument("--ablations", type=Path, default=Path("results/ablations"))
+    parser.add_argument("--calibration", type=Path, default=Path("results/calibration"))
+    parser.add_argument("--abstention", type=Path, default=Path("results/abstention"))
     parser.add_argument("--view", default="4class")
     args = parser.parse_args()
 
@@ -248,6 +252,179 @@ def main() -> None:
         print(f"no fine-tune runs under {args.finetune}; skipping that panel")
     else:
         print("wrote", finetune_figure(folds, tuned, args.out / "finetune.png", view=args.view))
+
+    # Stage 4 panels. Each says explicitly when it has nothing to draw, rather than leaving the
+    # script to report success while quietly producing one fewer figure.
+    ablation_files = sorted(args.ablations.glob("*.csv"))
+    if not ablation_files:
+        print(f"no ablation tables under {args.ablations}; skipping that panel")
+    else:
+        tables = pd.concat([pd.read_csv(f) for f in ablation_files], ignore_index=True)
+        print("wrote", ablation_figure(tables, args.out / "ablations.png"))
+
+    reports = {f.stem: json.loads(f.read_text()) for f in sorted(args.calibration.glob("*.json"))}
+    if not reports:
+        print(f"no calibration reports under {args.calibration}; skipping that panel")
+    else:
+        print("wrote", calibration_figure(reports, args.out / "calibration.png"))
+
+    curve_files = sorted(args.abstention.glob("*_curves.json"))
+    summary_files = sorted(f for f in args.abstention.glob("*.csv"))
+    if not curve_files or not summary_files:
+        print(f"no abstention results under {args.abstention}; skipping that panel")
+    else:
+        curves = {f.stem.replace("_curves", ""): json.loads(f.read_text()) for f in curve_files}
+        summary = pd.concat([pd.read_csv(f) for f in summary_files], ignore_index=True)
+        print("wrote", abstention_figure(curves, summary, args.out / "abstention.png"))
+
+
+def ablation_figure(tables: pd.DataFrame, out_path: Path) -> Path:
+    """Accuracy cost of each transform, one panel per model.
+
+    Costs are plotted relative to the unmodified reference, so a bar reaching zero means the model
+    lost everything that transform took away. The amplitude bars are controls and must sit at
+    exactly zero; they are drawn rather than hidden so a reader can see the check passing.
+    """
+    models = [m for m in ("bandpower", "frozen", "finetuned") if m in set(tables["model"])]
+    labels = {
+        "bandpower": "band power",
+        "frozen": "frozen audio model",
+        "finetuned": "fine-tuned wav2vec2",
+    }
+    order = [a for a in tables["ablation"].unique() if a != "none"]
+    # A table can hold both cross-lab directions; average the cost over them so each bar is one
+    # number. Indexing without this returns several rows per ablation.
+    tables = tables.groupby(["model", "ablation"], as_index=False).agg(
+        delta=("delta", "mean"), is_control=("is_control", "first")
+    )
+
+    fig, axes = plt.subplots(
+        1, len(models), figsize=(4.2 * len(models), 4.6), sharey=True, squeeze=False
+    )
+    for ax, model in zip(axes[0], models, strict=False):
+        part = tables[tables["model"] == model].set_index("ablation")
+        for position, name in enumerate(order):
+            if name not in part.index:
+                continue
+            row = part.loc[name]
+            colour = (
+                "#999999"
+                if row["is_control"]
+                else ("#c1440e" if row["delta"] < -0.02 else "#1f4e79")
+            )
+            ax.barh(position, row["delta"], color=colour, height=0.68, zorder=2)
+        ax.axvline(0, color="#222222", linewidth=0.9, zorder=3)
+        ax.set_yticks(range(len(order)))
+        ax.set_yticklabels([n.replace("_", " ") for n in order], fontsize=7.5)
+        ax.invert_yaxis()
+        ax.set_title(labels.get(model, model), fontsize=9)
+        ax.set_xlabel("change in balanced accuracy", fontsize=8)
+        ax.tick_params(axis="x", labelsize=7.5)
+        ax.grid(axis="x", alpha=0.25, zorder=0)
+
+    fig.suptitle("What each model loses when part of the signal is removed", fontsize=10)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def calibration_figure(reports: dict[str, dict], out_path: Path) -> Path:
+    """Reliability diagrams in-lab and cross-lab, before and after one fitted temperature.
+
+    Perfect calibration is the diagonal. A curve below it is overconfidence: the model claims more
+    than it delivers. The question is whether a temperature fitted on the left panel moves the
+    right one.
+    """
+    fig, axes = plt.subplots(
+        1, 2 * len(reports), figsize=(3.4 * 2 * len(reports), 3.6), squeeze=False
+    )
+    column = 0
+    for run, payload in reports.items():
+        direction = run.split("__")[0].replace("cross_lab_", "").replace("_", " ")
+        for split in ("in_lab", "cross_lab"):
+            ax = axes[0][column]
+            column += 1
+            for key, colour, style in (
+                ("reliability_before", "#c1440e", "-"),
+                ("reliability_after", "#1f4e79", "-"),
+            ):
+                curve = payload[split][key]
+                confidence = np.array(curve["confidence"], dtype=float)
+                accuracy = np.array(curve["accuracy"], dtype=float)
+                keep = np.isfinite(confidence) & np.isfinite(accuracy)
+                ax.plot(
+                    confidence[keep],
+                    accuracy[keep],
+                    style,
+                    color=colour,
+                    marker="o",
+                    markersize=3,
+                    linewidth=1.3,
+                    label="before" if "before" in key else "after temperature",
+                )
+            ax.plot([0, 1], [0, 1], "--", color="#888888", linewidth=1.0, label="perfect")
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.set_title(f"{direction}\n{split.replace('_', ' ')}", fontsize=8)
+            ax.set_xlabel("confidence", fontsize=8)
+            if column == 1:
+                ax.set_ylabel("accuracy", fontsize=8)
+                ax.legend(fontsize=6.5, loc="upper left")
+            ax.tick_params(labelsize=7)
+            ax.grid(alpha=0.25)
+
+    fig.suptitle("Does a temperature fitted in one lab reach the other?", fontsize=10)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def abstention_figure(curves: dict[str, dict], summary: pd.DataFrame, out_path: Path) -> Path:
+    """Risk against coverage for each uncertainty score, one panel per direction.
+
+    Dropping the most uncertain predictions first should lower the error rate of what is kept. A
+    flat curve is a score that carries no information about its own mistakes.
+    """
+    colours = {"max_softmax": "#c1440e", "entropy": "#e08214", "mahalanobis": "#1f4e79"}
+    names = {
+        "max_softmax": "confidence",
+        "entropy": "entropy",
+        "mahalanobis": "distance from training data",
+    }
+    fig, axes = plt.subplots(1, len(curves), figsize=(4.4 * len(curves), 4.0), squeeze=False)
+    for ax, (run, payload) in zip(axes[0], sorted(curves.items()), strict=False):
+        for score, curve in payload.items():
+            ax.plot(
+                curve["coverage"],
+                curve["risk"],
+                color=colours.get(score, "#666666"),
+                linewidth=1.6,
+                label=names.get(score, score),
+            )
+        part = summary[summary["run"] == run]
+        if len(part):
+            base = float(part["risk_full"].iloc[0])
+            ax.axhline(base, color="#888888", linestyle="--", linewidth=1.0)
+            ax.text(0.02, base + 0.01, "error at full coverage", fontsize=6.5, color="#666666")
+        direction = run.split("__")[0].replace("cross_lab_", "").replace("_", " ")
+        ax.set_title(direction, fontsize=9)
+        ax.set_xlabel("coverage (fraction kept)", fontsize=8)
+        ax.set_ylabel("error rate of what is kept", fontsize=8)
+        ax.set_xlim(0, 1)
+        ax.tick_params(labelsize=7.5)
+        ax.grid(alpha=0.25)
+        ax.legend(fontsize=7)
+
+    fig.suptitle("Can the model tell which of its own predictions to discard?", fontsize=10)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
 
 
 if __name__ == "__main__":
