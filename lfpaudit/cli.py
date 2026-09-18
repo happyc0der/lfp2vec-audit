@@ -1128,5 +1128,264 @@ def finetune_report(
         typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
+# ---------------------------------------------------------------------------------------------
+# Stage 4: calibration, abstention and ablations. All post-hoc except the ablation forward passes.
+# ---------------------------------------------------------------------------------------------
+
+
+def _latest_run(root: Path, tag: str) -> Path:
+    """The most recent run directory for a tag, or a clear error naming what is missing."""
+    candidates = sorted(Path(root).glob(f"{tag}/*/manifest.json"))
+    if not candidates:
+        raise typer.BadParameter(f"no run found under {root}/{tag}")
+    return candidates[-1].parent
+
+
+def _require(path: Path, why: str) -> Path:
+    if not path.exists():
+        raise typer.BadParameter(
+            f"{path} is missing, so {why} cannot be computed. Runs made before Stage 4 saved only "
+            "test logits; re-run with --save-model."
+        )
+    return path
+
+
+@app.command()
+def calibrate(
+    run: str = typer.Option("cross_lab_ibl_to_allen__all_target_groups__seed0"),
+    results: Path = typer.Option(Path("results/finetune_v2")),
+    out: Path = typer.Option(Path("results/calibration")),
+) -> None:
+    """Fit one temperature in-lab, apply it cross-lab, and report whether it reaches.
+
+    The paper's Broader Impact section asks for calibrated uncertainty. This measures whether the
+    standard way of providing it survives the shift that breaks the model.
+    """
+    from lfpaudit.eval.calibration import calibration_report, fit_temperature
+
+    run_dir = _latest_run(results, run)
+    val = pd.read_parquet(_require(run_dir / "val_predictions.parquet", "temperature fitting"))
+    test = pd.read_parquet(run_dir / "predictions.parquet")
+    columns = [f"logit_{r}" for r in REGIONS]
+
+    val_logits, val_y = val[columns].to_numpy(), val["label"].to_numpy()
+    test_logits, test_y = test[columns].to_numpy(), test["label"].to_numpy()
+
+    temperature = fit_temperature(val_logits, val_y)
+    in_lab = calibration_report(val_logits, val_y, temperature)
+    cross_lab = calibration_report(test_logits, test_y, temperature)
+    # What the target lab would have needed, which is the size of the gap the fix does not close.
+    oracle = fit_temperature(test_logits, test_y)
+    oracle_report = calibration_report(test_logits, test_y, oracle)
+
+    typer.echo(f"temperature fitted in-lab: {temperature:.3f}")
+    typer.echo(in_lab.summary_line("  in-lab  "))
+    typer.echo(cross_lab.summary_line("  cross-lab"))
+    typer.echo(f"temperature the target lab would have needed: {oracle:.3f}")
+    typer.echo(oracle_report.summary_line("  cross-lab, oracle T"))
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{run}.json").write_text(
+        json.dumps(
+            {
+                "run": run,
+                "temperature_in_lab": temperature,
+                "temperature_oracle": oracle,
+                "in_lab": in_lab.to_dict(),
+                "cross_lab": cross_lab.to_dict(),
+                "cross_lab_oracle": oracle_report.to_dict(),
+            },
+            indent=2,
+        )
+    )
+    typer.secho(f"wrote {out / f'{run}.json'}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def abstain(
+    run: str = typer.Option("cross_lab_ibl_to_allen__all_target_groups__seed0"),
+    results: Path = typer.Option(Path("results/finetune_v2")),
+    out: Path = typer.Option(Path("results/abstention")),
+) -> None:
+    """Can the model tell when not to trust itself, from its output or its representation?
+
+    Stage 3 showed confidence cannot: 0.98 while at chance. The representation identifies the
+    source lab at 0.997, so distance from the training distribution should catch what confidence
+    misses. Both are scored here the same way.
+    """
+    from lfpaudit.eval.selective import (
+        MahalanobisScorer,
+        confidence_scores,
+        risk_coverage,
+        separation_auc,
+    )
+
+    run_dir = _latest_run(results, run)
+    columns = [f"logit_{r}" for r in REGIONS]
+    val = pd.read_parquet(_require(run_dir / "val_predictions.parquet", "abstention"))
+    test = pd.read_parquet(run_dir / "predictions.parquet")
+    val_embeddings = np.load(_require(run_dir / "val_embeddings.npy", "the distance score"))
+    test_embeddings = np.load(_require(run_dir / "test_embeddings.npy", "the distance score"))
+
+    test_logits, test_y = test[columns].to_numpy(), test["label"].to_numpy()
+    correct = test_logits.argmax(axis=1) == test_y
+
+    scores = confidence_scores(test_logits)
+    val_scores = confidence_scores(val[columns].to_numpy())
+    scorer = MahalanobisScorer().fit(val_embeddings)
+    scores["mahalanobis"] = scorer.score(test_embeddings)
+    val_scores["mahalanobis"] = scorer.score(val_embeddings)
+
+    rows, curves = [], {}
+    for name, values in scores.items():
+        curve = risk_coverage(values, correct, name)
+        curves[name] = {"coverage": curve.coverage, "risk": curve.risk}
+        separation = separation_auc(val_scores[name], values)
+        rows.append(
+            {
+                "run": run,
+                "score": name,
+                "aurc": curve.area,
+                "risk_full": curve.risk_at_full,
+                "risk_half": curve.risk_at_half,
+                "risk_fifth": curve.risk_at_fifth,
+                "in_vs_out_auc": separation,
+            }
+        )
+        typer.echo(f"{curve.summary_line()}; separates in-lab from cross-lab at {separation:.3f}")
+
+    out.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(out / f"{run}.csv", index=False)
+    (out / f"{run}_curves.json").write_text(json.dumps(curves))
+    typer.secho(f"wrote {out / f'{run}.csv'}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def ablate(
+    model_kind: str = typer.Option("bandpower", help="bandpower, frozen or finetuned."),
+    scheme: str = typer.Option("cross_lab_ibl_to_allen"),
+    run: str = typer.Option("cross_lab_ibl_to_allen__all_target_groups__seed0"),
+    results: Path = typer.Option(Path("results/finetune_v2")),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    cache: Path = typer.Option(Path("data/features")),
+    out: Path = typer.Option(Path("results/ablations")),
+    n_test: int = typer.Option(10000, help="Test chunks to subsample; fixed by seed."),
+    device: str = typer.Option(None),
+    seed: int = typer.Option(0),
+) -> None:
+    """What does each model lose when a band, the waveform, or a quarter of the window goes?
+
+    The amplitude entries are controls: per-chunk normalisation must cancel them exactly. If they
+    move, the pipeline is not normalising where it claims to and nothing else here is trustworthy.
+    """
+    from lfpaudit.eval.ablations import ABLATIONS
+    from lfpaudit.eval.folds import build_schemes
+    from lfpaudit.features.bandpower import band_power
+    from lfpaudit.features.embed import load_encoder, prepare_waveforms
+    from lfpaudit.models.baselines import fit_predict
+
+    set_seed(seed)
+    policy = pick_device(device)
+    corpus = _load_corpus(ibl, allen)
+    index = corpus.index
+    labels_all = index["region"].map(REGION_TO_INDEX).to_numpy()
+    positions = {int(c): i for i, c in enumerate(index["chunk_id"])}
+    ids = index["chunk_id"].to_numpy()
+
+    folds = build_schemes(index, seed=seed)[scheme]
+    train_rows = np.array([positions[i] for i in folds[0].split.train], dtype=np.int64)
+    test_rows = np.array(
+        sorted({positions[i] for fold in folds for i in fold.split.test}), dtype=np.int64
+    )
+    rng = np.random.default_rng(seed)
+    if len(test_rows) > n_test:
+        test_rows = np.sort(rng.choice(test_rows, n_test, replace=False))
+    typer.echo(f"{model_kind}: {len(train_rows)} train, {len(test_rows)} test chunks")
+
+    encoder, tuned = None, None
+    if model_kind == "frozen":
+        encoder = load_encoder(device=policy.device)
+    elif model_kind == "finetuned":
+        from lfpaudit.models.train import load_model
+
+        tuned = load_model(_latest_run(results, run), device=policy.device)
+    elif model_kind != "bandpower":
+        raise typer.BadParameter("model_kind must be bandpower, frozen or finetuned")
+
+    def score(rows: np.ndarray, transform) -> np.ndarray:
+        """Feature or logit matrix for rows, with the transform applied to the raw chunks."""
+        out_chunks = []
+        for start in range(0, len(rows), 512):
+            block = corpus.take(ids[rows[start : start + 512]])
+            out_chunks.append(transform(block, corpus.fs))
+        chunks = np.concatenate(out_chunks)
+        if model_kind == "bandpower":
+            return band_power(chunks, fs=corpus.fs)
+        import torch
+
+        waveforms = prepare_waveforms(chunks, fs=corpus.fs)
+        outputs = []
+        model = encoder if encoder is not None else tuned
+        with torch.no_grad():
+            for start in range(0, len(waveforms), 32):
+                batch = torch.from_numpy(waveforms[start : start + 32]).to(policy.device)
+                if encoder is not None:
+                    outputs.append(model(batch).last_hidden_state.mean(1).float().cpu().numpy())
+                else:
+                    outputs.append(model(batch).logits.float().cpu().numpy())
+        return np.concatenate(outputs)
+
+    identity = ABLATIONS["none"].apply
+    train_features = None
+    if model_kind != "finetuned":
+        train_features = score(train_rows, identity)
+
+    rows_out = []
+    for name, ablation in ABLATIONS.items():
+        test_features = score(test_rows, ablation.apply)
+        if model_kind == "finetuned":
+            probs = softmax(test_features)
+        else:
+            probs = fit_predict(
+                "logreg", train_features, labels_all[train_rows], test_features, seed=seed
+            )
+        report = evaluate(probs, labels_all[test_rows])
+        rows_out.append(
+            {
+                "model": model_kind,
+                "scheme": scheme,
+                "ablation": name,
+                "question": ablation.question,
+                "is_control": ablation.is_control,
+                "n_test": len(test_rows),
+                "chance": report.chance,
+                "balanced_accuracy": report.balanced_accuracy,
+                "ece": report.ece,
+            }
+        )
+        typer.echo(f"  {name:18s} bal_acc {report.balanced_accuracy:.3f}  ece {report.ece:.3f}")
+
+    frame = pd.DataFrame(rows_out)
+    reference = float(frame.loc[frame["ablation"] == "none", "balanced_accuracy"].iloc[0])
+    frame["delta"] = frame["balanced_accuracy"] - reference
+
+    controls = frame[frame["is_control"]]["delta"].abs().max()
+    if controls > 0.005:
+        typer.secho(
+            f"GATE FAILED: amplitude control moved balanced accuracy by {controls:.4f}. "
+            "Per-chunk normalisation should cancel it exactly; nothing else here is trustworthy "
+            "until that is explained.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    typer.echo(f"amplitude controls null to {controls:.4f}, as they must be")
+
+    out.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(out / f"{model_kind}__{scheme}.csv", index=False)
+    typer.secho(f"wrote {out / f'{model_kind}__{scheme}.csv'}", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()
