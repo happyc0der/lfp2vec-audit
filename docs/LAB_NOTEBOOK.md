@@ -502,4 +502,35 @@ is never touched by the stopping decision. That is the next tier, and until it r
 statement is that the fine-tune reaches roughly 0.80 on a group it was allowed to stop on, which
 is at best level with position and may be below it.
 
+## 2026-09-18 — a day of compute lost to a self-matching process check
+
+The two remaining within-lab folds were queued to run back to back with this guard:
+
+```
+while pgrep -f "lfpaudit finetune run" >/dev/null; do sleep 120; done
+```
+
+The intent was to wait for the previous run to finish. What it actually did was match the queuing
+shell's own command line, which contains that string verbatim, so the loop waited on itself and
+never exited. The job sat spinning for about twenty-five hours and launched nothing. Both the
+chain log and the fold logs stayed empty, which is exactly what a healthy chain waiting its turn
+also looks like, so nothing about it drew attention.
+
+Two lessons, both about the same thing.
+
+**A process check that can match itself is not a check.** Replaced by running the folds serially
+in a single script, which needs no polling at all: the second cannot start before the first
+returns because it is the next line.
+
+**Silence is not evidence of progress.** The earlier version of this mistake, in Stage 1, was a
+`.gitignore` rule that hid a source package while every local test passed. The version before
+that, in Stage 3, was a figure call that silently matched nothing and let the script report
+success while producing one fewer figure. Each time the failure mode is the same: a step that
+does nothing and says nothing is indistinguishable from a step that worked. The remedy that keeps
+working is to check the thing itself rather than a proxy for it, which here means confirming a
+process is burning processor time, not that a log file is quiet.
+
+Nothing scientific was lost. Tier 1 was already complete and committed, and the first within-lab
+fold had finished. The cost was a day of an idle laptop.
+
 
