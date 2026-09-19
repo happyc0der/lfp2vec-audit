@@ -1,0 +1,12 @@
+model,scheme,ablation,question,is_control,n_test,chance,balanced_accuracy,ece,delta
+finetuned,cross_lab_allen_to_ibl,none,unmodified reference,False,10000,0.25,0.2556570032167564,0.6544511092359534,0.0
+finetuned,cross_lab_allen_to_ibl,stop_delta,accuracy cost of removing the delta band,False,10000,0.25,0.251163092538123,0.6545141259014897,-0.004493910678633362
+finetuned,cross_lab_allen_to_ibl,stop_theta,accuracy cost of removing the theta band,False,10000,0.25,0.24832739483437236,0.6718463936572734,-0.0073296083823840286
+finetuned,cross_lab_allen_to_ibl,stop_alpha,accuracy cost of removing the alpha band,False,10000,0.25,0.2477369951873677,0.6624923433044119,-0.007920008029388692
+finetuned,cross_lab_allen_to_ibl,stop_beta,accuracy cost of removing the beta band,False,10000,0.25,0.255644442759379,0.6554767541353815,-1.2560457377408518e-05
+finetuned,cross_lab_allen_to_ibl,stop_gamma,accuracy cost of removing the gamma band,False,10000,0.25,0.4091317263397881,0.4510308027679511,0.15347472312303173
+finetuned,cross_lab_allen_to_ibl,stop_ripple,accuracy cost of removing the ripple band,False,10000,0.25,0.30274252353312175,0.5514528927920141,0.04708552031636537
+finetuned,cross_lab_allen_to_ibl,phase_randomised,does anything beyond the power spectrum matter,False,10000,0.25,0.2571157555786308,0.6274319809643735,0.001458752361874427
+finetuned,cross_lab_allen_to_ibl,mask_25pct,reliance on a quarter of the window being present,False,10000,0.25,0.25020189772228896,0.6553619212868003,-0.005455105494467427
+finetuned,cross_lab_allen_to_ibl,amplitude_x0.5,control: must be null under per-chunk normalisation,True,10000,0.25,0.2556570032167564,0.6544511093562899,0.0
+finetuned,cross_lab_allen_to_ibl,amplitude_x2,control: must be null under per-chunk normalisation,True,10000,0.25,0.2556570032167564,0.6544511092725533,0.0

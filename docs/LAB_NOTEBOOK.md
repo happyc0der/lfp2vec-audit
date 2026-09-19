@@ -728,4 +728,78 @@ data* worked in one direction and failed in the other, so a distance-based gate 
 dependable safeguard here, and reporting it as one on the strength of a single direction would
 have been exactly the kind of claim this project exists to check.
 
+## 2026-09-19 — Stage 4 ablations: a power spectrum with extra steps
+
+Ten transforms applied to test inputs, on ten thousand chunks per direction, for band power, the
+frozen checkpoint and the fine-tuned model alike.
+
+### The controls pass exactly
+
+Amplitude scaling by half and by two moves balanced accuracy by **0.0000** in all six
+model-by-direction cells. Per-chunk normalisation cancels it, as the pipeline claims. Had this
+moved at all, nothing else in the stage would have been worth reading.
+
+### Phase randomisation costs nothing
+
+Replacing every chunk with a surrogate that has the same power spectrum and a destroyed waveform:
+
+| model | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| band power | −0.002 | −0.001 |
+| frozen audio model | −0.024 | +0.013 |
+| fine-tuned wav2vec2 | −0.008 | +0.001 |
+
+Band power must be unaffected, since it is computed from the spectrum the transform preserves,
+and it is; that is the invariant holding on real data rather than in a unit test.
+
+The two neural models are also unaffected. A ninety-five-million-parameter transformer over raw
+voltage, given inputs whose temporal structure has been destroyed and whose spectrum has not,
+performs the same. On this task it is reading spectral power and essentially nothing else.
+
+That is the answer to the question Stage 3 raised about why fine-tuning adds 0.007 over an
+untrained checkpoint: there is not much else in the representation for supervision to sharpen.
+
+### Removing the contaminated bands *helps*, in one direction
+
+| transform | band power | frozen | fine-tuned |
+|---|---:|---:|---:|
+| stop gamma, Allen → IBL | −0.020 | **+0.085** | **+0.153** |
+| stop ripple, Allen → IBL | −0.130 | +0.025 | +0.047 |
+| stop gamma, IBL → Allen | −0.104 | −0.057 | −0.012 |
+| stop ripple, IBL → Allen | −0.104 | −0.010 | −0.007 |
+
+Training on Allen and testing on IBL, deleting the gamma band raises the fine-tuned model from
+0.256 to 0.409 against a chance of 0.250. Above-chance performance goes from 0.006 to 0.159,
+which is about two fifths of the within-lab margin, recovered by throwing information away.
+
+Training on IBL and testing on Allen, the same deletion does nothing.
+
+The asymmetry is explained by D11, recorded in Stage 1 before any model existed. Allen retains
+energy above 300 Hz where the IBL pipeline band-passes it away, by up to a factor of 768. A model
+trained on Allen learns frequency content that does not exist in IBL, and is misled by its
+absence at test time; removing that content from both sides removes the mistake. A model trained
+on IBL never had the opportunity to learn it, so there is nothing to remove.
+
+Band power behaves in the opposite way throughout, losing accuracy whenever a band is deleted,
+because every one of its six features carries signal and none of them is a learned shortcut.
+
+### What Stage 4 establishes, in order of how much it took to find out
+
+1. **The remedy does not reach the failure.** Temperature scaling repairs in-lab calibration
+   fourfold and moves the cross-lab number by 0.05. The target lab needed 8.26 and 11.79 where
+   in-lab fitting produced 1.84 and 1.72.
+2. **The model cannot refuse, and the unsupervised alternative is unreliable.** Every abstention
+   score has risk-coverage area above the base error rate. Distance from the training
+   distribution detects the shift at 0.955 in one direction and 0.495 in the other.
+3. **It is a spectral classifier.** Destroying temporal structure while preserving the spectrum
+   costs it nothing.
+4. **Part of the cross-lab failure is a learned artefact, and is removable.** Deleting the bands
+   where the two pipelines disagree recovers two fifths of the within-lab margin, in the one
+   direction where the artefact could have been learned.
+
+The fourth is the only constructive result in the stage, and it is worth being precise about what
+it offers: not a method, but a demonstration that some of the gap is preprocessing rather than
+physiology, and that harmonising the two pipelines before training would be a cheaper experiment
+than any architectural change.
+
 

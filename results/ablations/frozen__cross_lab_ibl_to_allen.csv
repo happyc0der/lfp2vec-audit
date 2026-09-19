@@ -1,0 +1,12 @@
+model,scheme,ablation,question,is_control,n_test,chance,balanced_accuracy,ece,delta
+frozen,cross_lab_ibl_to_allen,none,unmodified reference,False,10000,0.2,0.22943786727958787,0.500849237078148,0.0
+frozen,cross_lab_ibl_to_allen,stop_delta,accuracy cost of removing the delta band,False,10000,0.2,0.22986969752393033,0.4996551368482509,0.0004318302443424571
+frozen,cross_lab_ibl_to_allen,stop_theta,accuracy cost of removing the theta band,False,10000,0.2,0.22410612547248623,0.49654005076011265,-0.0053317418071016365
+frozen,cross_lab_ibl_to_allen,stop_alpha,accuracy cost of removing the alpha band,False,10000,0.2,0.2159268937562405,0.5126949912224634,-0.013510973523347375
+frozen,cross_lab_ibl_to_allen,stop_beta,accuracy cost of removing the beta band,False,10000,0.2,0.20623805538394374,0.5452774232935551,-0.02319981189564413
+frozen,cross_lab_ibl_to_allen,stop_gamma,accuracy cost of removing the gamma band,False,10000,0.2,0.17261141819579257,0.6050136674758072,-0.056826449083795305
+frozen,cross_lab_ibl_to_allen,stop_ripple,accuracy cost of removing the ripple band,False,10000,0.2,0.21928335042618569,0.5088151076062437,-0.010154516853402185
+frozen,cross_lab_ibl_to_allen,phase_randomised,does anything beyond the power spectrum matter,False,10000,0.2,0.2053918793168445,0.5371434155803614,-0.024045987962743376
+frozen,cross_lab_ibl_to_allen,mask_25pct,reliance on a quarter of the window being present,False,10000,0.2,0.19954081968614718,0.6203940841593751,-0.029897047593440695
+frozen,cross_lab_ibl_to_allen,amplitude_x0.5,control: must be null under per-chunk normalisation,True,10000,0.2,0.22943786727958787,0.5008492645583986,0.0
+frozen,cross_lab_ibl_to_allen,amplitude_x2,control: must be null under per-chunk normalisation,True,10000,0.2,0.22943786727958787,0.5008492305355952,0.0

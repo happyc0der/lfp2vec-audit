@@ -279,11 +279,14 @@ def main() -> None:
 
 
 def ablation_figure(tables: pd.DataFrame, out_path: Path) -> Path:
-    """Accuracy cost of each transform, one panel per model.
+    """Accuracy change from each transform, per model, with the two directions side by side.
 
-    Costs are plotted relative to the unmodified reference, so a bar reaching zero means the model
-    lost everything that transform took away. The amplitude bars are controls and must sit at
-    exactly zero; they are drawn rather than hidden so a reader can see the check passing.
+    Averaging the directions would hide the finding: removing the high-frequency bands *helps*
+    the neural models in one direction and not the other, which is what a model trained on
+    frequency content that only exists in its source lab looks like.
+
+    The amplitude entries are controls and must be exactly zero; they are drawn rather than
+    hidden so a reader can watch the check pass.
     """
     models = [m for m in ("bandpower", "frozen", "finetuned") if m in set(tables["model"])]
     labels = {
@@ -291,38 +294,42 @@ def ablation_figure(tables: pd.DataFrame, out_path: Path) -> Path:
         "frozen": "frozen audio model",
         "finetuned": "fine-tuned wav2vec2",
     }
+    schemes = sorted(tables["scheme"].unique())
+    scheme_labels = {
+        "cross_lab_ibl_to_allen": "IBL → Allen",
+        "cross_lab_allen_to_ibl": "Allen → IBL",
+    }
+    scheme_colours = {schemes[0]: "#1f4e79", schemes[-1]: "#c1440e"}
     order = [a for a in tables["ablation"].unique() if a != "none"]
-    # A table can hold both cross-lab directions; average the cost over them so each bar is one
-    # number. Indexing without this returns several rows per ablation.
-    tables = tables.groupby(["model", "ablation"], as_index=False).agg(
-        delta=("delta", "mean"), is_control=("is_control", "first")
-    )
 
     fig, axes = plt.subplots(
-        1, len(models), figsize=(4.2 * len(models), 4.6), sharey=True, squeeze=False
+        1, len(models), figsize=(4.4 * len(models), 5.0), sharey=True, squeeze=False
     )
+    height = 0.38
     for ax, model in zip(axes[0], models, strict=False):
-        part = tables[tables["model"] == model].set_index("ablation")
-        for position, name in enumerate(order):
-            if name not in part.index:
-                continue
-            row = part.loc[name]
-            colour = (
-                "#999999"
-                if row["is_control"]
-                else ("#c1440e" if row["delta"] < -0.02 else "#1f4e79")
+        for offset, scheme in zip((-height / 2, height / 2), schemes, strict=False):
+            part = tables[(tables["model"] == model) & (tables["scheme"] == scheme)]
+            part = part.set_index("ablation")
+            values = [float(part.loc[a, "delta"]) if a in part.index else 0.0 for a in order]
+            ax.barh(
+                [i + offset for i in range(len(order))],
+                values,
+                height=height,
+                color=scheme_colours.get(scheme, "#888888"),
+                label=scheme_labels.get(scheme, scheme),
+                zorder=2,
             )
-            ax.barh(position, row["delta"], color=colour, height=0.68, zorder=2)
         ax.axvline(0, color="#222222", linewidth=0.9, zorder=3)
         ax.set_yticks(range(len(order)))
-        ax.set_yticklabels([n.replace("_", " ") for n in order], fontsize=7.5)
+        ax.set_yticklabels([n.replace("_", " ") for n in order], fontsize=8)
         ax.invert_yaxis()
         ax.set_title(labels.get(model, model), fontsize=9)
         ax.set_xlabel("change in balanced accuracy", fontsize=8)
         ax.tick_params(axis="x", labelsize=7.5)
         ax.grid(axis="x", alpha=0.25, zorder=0)
+    axes[0][0].legend(fontsize=7.5, loc="lower left")
 
-    fig.suptitle("What each model loses when part of the signal is removed", fontsize=10)
+    fig.suptitle("What each model loses, or gains, when part of the signal is removed", fontsize=10)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
