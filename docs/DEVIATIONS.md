@@ -188,3 +188,32 @@ than a model limit, while a high number cannot be explained away by it.
 
 The confounds this repository does test, electrode position and signal amplitude, are a separate
 matter and are measured directly in Stage 2.
+
+## D13 — The paper's numbers are only in bitmaps, and its metrics are not interchangeable
+
+Comparing against the published work required reading its figures, because the paper contains no
+results tables and states only two performance numbers in prose: a silhouette score of
+0.576 ± 0.026 and a linear-probing accuracy of 0.921 ± 0.004, both on Allen sessions. Every
+headline accuracy is inside a rasterised figure with no text layer.
+
+Two conventions in those figures have to be matched deliberately, and mixing them produces errors
+larger than most findings:
+
+**Chance is the majority-class rate, not one over the number of classes.** The parenthesised
+values in the cross-lab matrix are 0.38, 0.45 and 0.37, which reconstruct exactly as the largest
+class share in each dataset's confusion matrix. For a five-class problem the naive 0.20 is
+nowhere in the paper.
+
+**Balanced accuracy and raw accuracy are both reported, in different figures.** Within-session
+results are balanced; the cross-lab matrix is raw. On Allen the same model gives 0.83 raw and
+about 0.645 balanced, a gap of nineteen points created by one class holding 44% of the samples.
+Quoting across that boundary would overstate any comparison badly.
+
+This repository reports balanced accuracy throughout, with per-fold chance computed from the
+classes actually present, and states raw accuracy explicitly wherever it compares to the paper's
+cross-lab matrix.
+
+A further consequence: because the figure values were read from bar heights, every published
+number quoted in this repository is marked as figure-read and carries roughly ±0.01. Any error in
+reading them is mine, not the authors'.
+

@@ -172,6 +172,88 @@ data rather than on one lab's labels, and nothing here tests it. No pretrained w
 released, so the published numbers cannot be checked directly. These are results for what can be
 reproduced on public data with laptop-class compute, with every control on the same folds.
 
+## How this compares to the paper
+
+### What can be compared, and what cannot
+
+The paper contains **no results tables**. Every headline number lives inside a rasterised figure,
+so the only performance figures available as text are a silhouette score of 0.576 ± 0.026 and a
+linear-probing accuracy of 0.921 ± 0.004, both on Allen sessions only. Numbers marked *(figure)*
+below were read off bar heights and confusion matrices in the published bitmaps and carry perhaps
+±0.01; they are the authors' results, not mine, and any error in reading them is mine.
+
+Two conventions have to be matched or the comparison is meaningless:
+
+- **Their reported chance is the majority-class rate, not one over the number of classes.** For
+  Allen that is 0.45, not 0.20.
+- **Their within-session figure reports balanced accuracy; their cross-lab matrix reports raw
+  accuracy.** The same model and data give 0.83 raw and about 0.645 balanced on Allen. Quoting one
+  against the other would overstate by nearly twenty points.
+
+Everything below is stated on the paper's own terms.
+
+### Within lab, this reproduces
+
+Balanced accuracy across held-out sessions, the paper's Figure 2a metric:
+
+| | LFP2Vec, published *(figure)* | this reproduction |
+|---|---:|---:|
+| IBL | 0.68 | **0.716** (3 folds: 0.819, 0.631, 0.697) |
+
+Within a lab the reduced method lands where the published one does, without the self-supervised
+stage. Worth noting from the same figure: on IBL, LFP2Vec is **not** the best model in the paper's
+own results, with BrainBERT ahead on both balanced accuracy (0.70) and macro F1 (0.585 against
+0.565) *(figure)*. The text reports this only as "fewer performance gains are observed on IBL."
+
+### Across labs, it does not
+
+Raw accuracy against the target lab's majority-class rate, the paper's Figure 2e convention:
+
+| direction | LFP2Vec, published *(figure)* | majority | margin | this reproduction | majority | margin |
+|---|---:|---:|---:|---:|---:|---:|
+| IBL → Allen | 0.56 | 0.45 | **+0.11** | 0.420 | 0.452 | **−0.032** |
+| Allen → IBL | 0.49 | 0.37 | **+0.12** | 0.309 | 0.370 | **−0.060** |
+
+The published model clears the majority-class rate by about eleven points in both directions. This
+reproduction falls below it in both. That is the substantive disagreement, and the honest reading
+is that **something the published method does and this one does not is worth roughly 0.15 of
+cross-lab accuracy.** The candidates, in the order I would test them:
+
+1. **The self-supervised stage**, skipped here (D1). It trains on pooled unlabelled recordings,
+   which is exactly the kind of objective that could suppress the acquisition structure Stage 4
+   found surviving supervised fine-tuning at a lab-identity score of 0.994.
+2. **The post-processing**, which the paper applies as temporal smoothing plus a majority vote over
+   each channel's five nearest neighbours. That second step is a spatial prior, and this repository
+   measures what such a prior is worth on its own: electrode position alone reaches 0.856 within
+   lab and 0.628 across labs. Whether Figure 2e includes post-processing is not stated.
+3. **Data scale.** The paper reports no session, animal, or recording count for Allen or IBL, only
+   percentages, so this cannot be checked.
+
+### Where the paper leaves gaps this fills
+
+Verified absent from the paper and supplement, by full-text search:
+
+- **No calibration metric of any kind** — no expected calibration error, reliability diagram,
+  confidence measure, uncertainty estimate, or abstention analysis — while its Broader Impact
+  section states that clinical deployment "should include calibrated uncertainty estimates". This
+  repository measures that: the error is 0.535 and 0.655 across labs, and a temperature fitted
+  in-lab does not repair it.
+- **No position, depth, channel-index, or geometry control**, and no shuffled-label control. All
+  three published baselines are learned encoders on the same signal. Here, electrode position alone
+  beats the fine-tuned model within lab.
+- **No significance test anywhere**, and error bars are defined only in the NeurIPS checklist,
+  which claims the text describes them. It does not.
+- **Chance never appears as a number in prose.** It is a figure annotation, and it is the
+  majority-class rate.
+
+### What this comparison is not
+
+This is a comparison against a reduced reproduction: audio initialisation plus supervised
+fine-tuning, on two of the four datasets, with laptop-class compute and no released weights to
+check against. A gap measured here is a gap against that, not a refutation of the published model.
+The most useful thing it establishes is *where* to look: the difference is entirely cross-lab,
+which is precisely where the skipped stage and the spatial post-processing would act.
+
 ## Calibration, abstention and ablation
 
 Full tables in [`docs/RESULTS_CALIBRATION.md`](docs/RESULTS_CALIBRATION.md), regenerated from the
