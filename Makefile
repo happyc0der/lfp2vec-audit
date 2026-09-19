@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 CLI := .venv/bin/lfpaudit
 
-.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table calibrate abstain ablate stage4-report baselines finetune ablate figures clean
+.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table calibrate abstain ablate stage4-report postprocess adapt harmonised fixes-table baselines finetune ablate figures clean
 
 setup:                ## create the virtualenv and install the package
 	uv venv --python 3.11
@@ -76,6 +76,23 @@ ablate:               ## band-stop, phase randomisation and controls
 
 stage4-report:        ## regenerate docs/RESULTS_CALIBRATION.md from saved results
 	$(CLI) stage4-report
+
+postprocess:          ## the paper's post-processing on every cross-lab run and control
+	$(CLI) postprocess --run cross_lab_ibl_to_allen__all_target_groups__seed0
+	$(CLI) postprocess --run cross_lab_allen_to_ibl__all_target_groups__seed0
+	$(CLI) postprocess --run cross_lab_ibl_to_allen --baseline geometry
+	$(CLI) postprocess --run cross_lab_allen_to_ibl --baseline geometry
+	$(CLI) postprocess --run cross_lab_ibl_to_allen --baseline bandpower_full
+	$(CLI) postprocess --run cross_lab_allen_to_ibl --baseline bandpower_full
+
+adapt:                ## per-probe embedding centering on a saved run (needs --save-model)
+	$(CLI) adapt --run cross_lab_ibl_to_allen__all_target_groups__seed0
+
+harmonised:           ## lever H: fine-tune both directions low-passed at 100 Hz (~7 h)
+	scripts/stage5_runs.sh
+
+fixes-table:          ## regenerate docs/RESULTS_FIXES.md from saved results
+	$(CLI) fixes-table
 
 finetune:
 	@echo "Stage 3 - not implemented yet"
