@@ -876,4 +876,50 @@ whitening, is implemented and tested and launches only if H falls short. Both re
 spectral fingerprint before the model sees it, which after lever C is the only place left for the
 difference to live.
 
+### Lever H: harmonised-band training restores transfer
+
+Both directions fine-tuned with every input low-passed at 100 Hz, the corner chosen in Stage 2
+before any cross-lab number existed. Then their post-processing on top.
+
+| | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| paper, Figure 2e margin *(figure)* | +0.11 | +0.12 |
+| full band, Stage 3 | −0.03 | −0.06 |
+| **H, harmonised** | +0.04 | **+0.12** |
+| **H + their post-processing** | **+0.15** | **+0.12** |
+| electrode position | +0.27 | +0.21 |
+
+Balanced accuracy tells the same story more plainly: 0.455 and 0.370 against a chance of 0.250,
+where the full-band model sat at 0.242 and 0.258. Calibration error fell from 0.556 to 0.348 and
+from 0.656 to 0.258. Lab identity fell from 0.997 to 0.830 and from 0.994 to 0.735.
+
+So harmonised training plus the paper's own post-processing **clears the published cross-lab
+margin in one direction and ties it in the other**, within the ±0.01 that reading a bar chart
+allows, using no labels from the target lab. The full-band model was below the majority-class rate
+in both. The difference is one preprocessing choice the paper does not control: which frequencies
+the two pipelines let through.
+
+Two things keep this honest. Electrode position is still ahead by 0.09 to 0.13. And in the
+direction where H alone ties the paper, their post-processing adds almost nothing (+0.116 →
++0.124), so the tie is the representation's, not the prior's.
+
+### What harmonisation does to the two Stage 4 failures
+
+**Calibration.** Temperature scaling from in-lab now reaches cross-lab, partly. IBL → Allen goes
+0.352 → 0.238 with the in-lab temperature, against an oracle of 0.044; the gap between fitted and
+needed temperature shrank from 4.5× to 2.1×. Allen → IBL is already well calibrated in-lab
+(0.045), the fitted temperature is 0.93, and applying it cross-lab moves 0.258 to 0.272: nothing
+to transfer. The remedy now does something, and still not enough.
+
+**Abstention.** This reversed. With the full-band model every risk-coverage area sat above the
+error at full coverage. With H, distance from the training distribution ranks errors in *both*
+directions: keeping the most confident fifth by that score gives 0.305 and 0.360 error against
+0.506 and 0.515 for everything. Confidence and entropy rank in one direction only. So the
+representation's distance is now a working ranker where before it was at best a gate, and the
+reason is that the model is no longer collapsed onto one class, so its embeddings vary with the
+input again.
+
+Per-probe centering on H is running. Whitening launches next, because a tie in one direction is
+the case the plan reserved it for.
+
 
