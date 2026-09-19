@@ -1680,6 +1680,7 @@ def fixes_table(
     postprocess_dir: Path = typer.Option(Path("results/postprocess")),
     calibration_dir: Path = typer.Option(Path("results/calibration")),
     finetune_dir: Path = typer.Option(Path("results/finetune_v2")),
+    adapt_dir: Path = typer.Option(Path("results/adapt")),
     out: Path = typer.Option(Path("docs/RESULTS_FIXES.md")),
 ) -> None:
     """Assemble every fix configuration beside the paper's cross-lab margin.
@@ -1752,6 +1753,25 @@ def fixes_table(
                     f"{row.chance:.3f} | {cross_lab_ece(tag) if tag else '—'} | "
                     f"{lab_identity(tag) if tag else '—'} |"
                 )
+        # Lever C rows come from their own result files, with the controls that qualify them.
+        for path in sorted(Path(adapt_dir).glob(f"{scheme}__*.csv")):
+            row = pd.read_csv(path).iloc[0]
+            source = str(row["run"]).replace(f"{scheme}__", "")
+            source = {
+                "all_target_groups__seed0": "reproduction",
+                "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
+            }.get(source, source)
+            lines.append(
+                f"| {source} + C: per-probe centering | — | {row['raw_accuracy']:.3f} | "
+                f"{row['raw_accuracy'] - row['majority']:+.3f} | "
+                f"{row['balanced_accuracy']:.3f} | {row['chance']:.3f} | {row['ece']:.3f} | "
+                f"{row['lab_identity_auc']:.3f} |"
+            )
+            lines.append(
+                f"| *controls for the row above* | — | uncentred head "
+                f"{row['control_uncentred_raw']:.3f} | | centred in-lab "
+                f"{row['control_centred_in_lab_balanced']:.3f} | | | |"
+            )
         lines.append("")
 
     text = "\n".join(lines)

@@ -17,9 +17,14 @@ Published, Figure 2e *(figure)*: raw 0.56 against majority 0.45, **margin +0.11*
 | reproduction (Stage 3) | raw | 0.420 | -0.032 | 0.193 | 0.200 | 0.560 | 0.997 |
 | reproduction (Stage 3) | temporal | 0.418 | -0.034 | 0.189 | 0.200 | 0.560 | 0.997 |
 | reproduction (Stage 3) | spatial | 0.424 | -0.028 | 0.192 | 0.200 | 0.560 | 0.997 |
+| band power (control) | raw | 0.520 | +0.064 | 0.379 | 0.250 | — | — |
+| band power (control) | temporal | 0.596 | +0.141 | 0.424 | 0.250 | — | — |
+| band power (control) | spatial | 0.622 | +0.167 | 0.436 | 0.250 | — | — |
 | electrode position (control) | raw | 0.729 | +0.273 | 0.671 | 0.250 | — | — |
 | electrode position (control) | temporal | 0.729 | +0.273 | 0.671 | 0.250 | — | — |
 | electrode position (control) | spatial | 0.729 | +0.273 | 0.671 | 0.250 | — | — |
+| reproduction + C: per-probe centering | — | 0.130 | -0.322 | 0.239 | 0.200 | 0.535 | 0.526 |
+| *controls for the row above* | — | uncentred head 0.416 | | centred in-lab 0.647 | | | |
 
 ## Allen → IBL
 
@@ -30,6 +35,9 @@ Published, Figure 2e *(figure)*: raw 0.49 against majority 0.37, **margin +0.12*
 | reproduction (Stage 3) | raw | 0.309 | -0.060 | 0.258 | 0.250 | 0.656 | 0.994 |
 | reproduction (Stage 3) | temporal | 0.307 | -0.063 | 0.256 | 0.250 | 0.656 | 0.994 |
 | reproduction (Stage 3) | spatial | 0.307 | -0.063 | 0.256 | 0.250 | 0.656 | 0.994 |
+| band power (control) | raw | 0.412 | +0.042 | 0.333 | 0.250 | — | — |
+| band power (control) | temporal | 0.403 | +0.033 | 0.332 | 0.250 | — | — |
+| band power (control) | spatial | 0.398 | +0.029 | 0.329 | 0.250 | — | — |
 | electrode position (control) | raw | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
 | electrode position (control) | temporal | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
 | electrode position (control) | spatial | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
