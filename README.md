@@ -172,6 +172,72 @@ data rather than on one lab's labels, and nothing here tests it. No pretrained w
 released, so the published numbers cannot be checked directly. These are results for what can be
 reproduced on public data with laptop-class compute, with every control on the same folds.
 
+## Calibration, abstention and ablation
+
+Full tables in [`docs/RESULTS_CALIBRATION.md`](docs/RESULTS_CALIBRATION.md), regenerated from the
+saved results by `lfpaudit stage4-report`.
+
+### The standard remedy does not reach the failure
+
+One temperature fitted on in-lab validation logits, then applied unchanged across labs:
+
+| direction | in-lab ECE | cross-lab ECE | temperature fitted | temperature actually needed |
+|---|---:|---:|---:|---:|
+| IBL → Allen | 0.100 → **0.025** | 0.560 → **0.510** | 1.84 | 8.26 |
+| Allen → IBL | 0.114 → **0.054** | 0.656 → **0.580** | 1.72 | 11.79 |
+
+In-lab the fix works and calibration error falls several-fold. Across labs the same scalar moves
+it by 0.05 and leaves the model asserting 0.93 confidence at 42% accuracy. The target lab needed a
+temperature four to seven times larger, and that number cannot be found without labelled data from
+the target lab, which is precisely what zero-shot transfer claims not to need.
+
+So the remedy the paper's own Broader Impact section calls for exists, is a single number, and is
+out of reach of the setting its headline claim describes.
+
+### The model cannot refuse, and the unsupervised alternative is unreliable
+
+| score | AURC, IBL → Allen | separation, IBL → Allen | separation, Allen → IBL |
+|---|---:|---:|---:|
+| confidence | 0.618 | 0.315 | 0.400 |
+| entropy | 0.625 | 0.327 | 0.398 |
+| distance from training data | 0.651 | **0.955** | **0.495** |
+
+Every risk–coverage area sits above the error at full coverage (0.580), so discarding the most
+uncertain predictions leaves a *worse* set than keeping everything.
+
+Confidence separates in-lab from cross-lab inputs at below 0.5, meaning the model is **more**
+confident on recordings from a lab it has never seen than on held-out data from its own.
+
+Distance from the training distribution detects the shift almost perfectly in one direction and
+not at all in the other, while a supervised probe separates the labs at 0.994 in both. The
+structure is there either way; whether an unsupervised distance can reach it is what changes, so a
+distance-based gate is not a dependable safeguard here.
+
+### It is a power spectrum with extra steps
+
+![ablations](docs/figures/ablations.png)
+
+**Phase randomisation costs nothing.** Replacing every chunk with a surrogate that keeps its power
+spectrum and destroys its waveform changes the fine-tuned model by 0.008 and the frozen model by
+0.024. Band power must be unaffected and is, which is that invariant holding on real data. A
+95-million-parameter transformer over raw voltage, handed inputs with no temporal structure left,
+performs the same. That is also why fine-tuning adds only 0.007 over an untrained checkpoint:
+there is little else in the representation for supervision to sharpen.
+
+**Deleting the contaminated bands helps, in one direction only.** Training on Allen and testing on
+IBL, removing the gamma band raises the fine-tuned model from 0.256 to **0.409** against a chance
+of 0.250, recovering about two fifths of the within-lab margin by discarding information. The same
+deletion does nothing in reverse.
+
+That follows from the spectral divergence recorded in Stage 1 before any model existed: Allen
+retains energy above 300 Hz where the IBL pipeline filters it away. A model trained on Allen learns
+content absent from IBL and is misled when it goes missing; a model trained on IBL never had the
+chance to learn it. Band power loses accuracy from every deletion, because each of its features
+carries signal and none is a learned shortcut.
+
+**The amplitude controls are exactly zero** in all six model-by-direction cells, which is the check
+that the pipeline normalises where it claims to.
+
 ## Planned experiments
 
 | Stage | Experiment | Status |
@@ -179,8 +245,8 @@ reproduced on public data with laptop-class compute, with every control on the s
 | 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
 | 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | **done** |
 | 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | **in progress** |
-| 4 | Temperature scaling, band-stop and phase-randomisation ablations, band attribution | planned |
-| 5 | Selective prediction: risk–coverage under shift | planned |
+| 4 | Temperature scaling, band-stop and phase-randomisation ablations | **done** |
+| 5 | Selective prediction: risk–coverage under shift | **done**, folded into Stage 4 |
 | 6 | Two-page note and figures | planned |
 
 ## Reproducing what exists today

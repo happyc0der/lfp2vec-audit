@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 CLI := .venv/bin/lfpaudit
 
-.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table baselines finetune ablate figures clean
+.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table calibrate abstain ablate stage4-report baselines finetune ablate figures clean
 
 setup:                ## create the virtualenv and install the package
 	uv venv --python 3.11
@@ -64,6 +64,18 @@ lab-discriminator:    ## how separable are the two datasets
 
 results-table:        ## regenerate docs/RESULTS_BASELINES.md
 	$(CLI) baselines table --out docs/RESULTS_BASELINES.md
+
+calibrate:            ## temperature scaling, both directions
+	$(CLI) calibrate
+
+abstain:              ## risk-coverage and shift detection, both directions
+	$(CLI) abstain
+
+ablate:               ## band-stop, phase randomisation and controls
+	$(CLI) ablate --model-kind bandpower
+
+stage4-report:        ## regenerate docs/RESULTS_CALIBRATION.md from saved results
+	$(CLI) stage4-report
 
 finetune:
 	@echo "Stage 3 - not implemented yet"
