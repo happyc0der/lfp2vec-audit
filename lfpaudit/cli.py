@@ -1584,5 +1584,72 @@ def stage4_report(
     typer.secho(f"wrote {out} ({len(lines)} lines)", fg=typer.colors.GREEN)
 
 
+@app.command("postprocess")
+def postprocess(
+    run: str = typer.Option(
+        "cross_lab_ibl_to_allen__all_target_groups__seed0", help="Fine-tune run tag."
+    ),
+    results: Path = typer.Option(Path("results/finetune_v2")),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    out: Path = typer.Option(Path("results/postprocess")),
+    window: int = typer.Option(2, help="Neighbours each side for the spatial vote."),
+) -> None:
+    """Apply the paper's post-processing to a saved run and score every stage.
+
+    Reports chunk-level and channel-level accuracy at each stage, both balanced and raw, with
+    chance and majority for each, so the numbers can be placed against the paper's cross-lab
+    matrix on its own terms.
+    """
+    from lfpaudit.eval.postprocess import apply_paper_pipeline, channel_level_scores
+
+    run_dir = sorted(Path(results).glob(f"{run}/*/"))
+    if not run_dir:
+        raise typer.BadParameter(f"no run under {results}/{run}")
+    run_dir = run_dir[-1]
+    frame = pd.read_parquet(run_dir / "predictions.parquet")
+
+    corpus = _load_corpus(ibl, allen)
+    geometry = corpus.index.set_index("chunk_id")[["channel", "depth_um"]]
+    frame = frame.join(geometry, on="chunk_id")
+    logits = frame[[f"logit_{r}" for r in REGIONS]].to_numpy()
+    truth = frame["label"].to_numpy()
+
+    result = apply_paper_pipeline(frame, logits, window=window)
+    rows = []
+    for stage, labels in result.stages().items():
+        present = np.unique(truth)
+        recalls = [float((labels[truth == c] == c).mean()) for c in present]
+        counts = np.bincount(truth, minlength=len(REGIONS))
+        chunk = {
+            "level": "chunk",
+            "raw_accuracy": float((labels == truth).mean()),
+            "balanced_accuracy": float(np.mean(recalls)),
+            "chance": 1.0 / len(present),
+            "majority": float(counts.max() / counts.sum()),
+            "n": int(len(truth)),
+        }
+        records = [chunk]
+        # The raw stage is per chunk by definition; only the aggregated stages have one label
+        # per channel to score at that level.
+        if stage != "raw":
+            channel = {"level": "channel", **channel_level_scores(result.channels, stage)}
+            channel["n"] = channel.pop("n_channels")
+            records.append(channel)
+        for record in records:
+            rows.append({"run": run, "stage": stage, **record})
+            typer.echo(
+                f"  {stage:9s} {record['level']:8s} raw {record['raw_accuracy']:.3f} "
+                f"(majority {record['majority']:.3f}, margin "
+                f"{record['raw_accuracy'] - record['majority']:+.3f})  "
+                f"balanced {record['balanced_accuracy']:.3f} (chance {record['chance']:.3f})"
+            )
+
+    Path(out).mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(Path(out) / f"{run}.csv", index=False)
+    result.channels.to_csv(Path(out) / f"{run}__channels.csv", index=False)
+    typer.secho(f"wrote {out}/{run}.csv", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()
