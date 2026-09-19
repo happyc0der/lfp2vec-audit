@@ -1336,10 +1336,15 @@ def ablate(
                     outputs.append(model(batch).logits.float().cpu().numpy())
         return np.concatenate(outputs)
 
-    identity = ABLATIONS["none"].apply
     train_features = None
     if model_kind != "finetuned":
-        train_features = score(train_rows, identity)
+        # Training inputs are never ablated, so their representation is the one Stage 2 already
+        # cached. Recomputing it would re-embed ninety-seven thousand chunks for a result
+        # identical to a file on disk, and cost twenty minutes per scheme to do it.
+        cached = "bandpower_full" if model_kind == "bandpower" else "w2v2_frozen"
+        table = _build_feature_table(corpus, cached, cache, policy.device, rebuild=False)
+        train_features = table[train_rows]
+        typer.echo(f"  training features from the {cached} cache: {train_features.shape}")
 
     rows_out = []
     for name, ablation in ABLATIONS.items():
