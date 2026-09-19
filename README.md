@@ -254,6 +254,68 @@ check against. A gap measured here is a gap against that, not a refutation of th
 The most useful thing it establishes is *where* to look: the difference is entirely cross-lab,
 which is precisely where the skipped stage and the spatial post-processing would act.
 
+## Closing the gap
+
+The comparison above leaves one objection standing: the reduced method transfers worse than the
+published one, so the audit might be of a strawman. Stage 5 closes that gap, lever by lever, using
+**no labels from the target lab**, with every lever applied to every model including electrode
+position. Full tables in [`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md).
+
+![fixes](docs/figures/fixes.png)
+
+Raw accuracy minus the target lab's majority-class rate, the paper's own metric and chance:
+
+| configuration | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| paper, Figure 2e *(figure)* | +0.11 | +0.12 |
+| reproduction, full band | −0.03 | −0.06 |
+| + their post-processing | −0.03 | −0.06 |
+| + per-probe embedding centering | −0.32 | — |
+| **harmonised band ≤100 Hz** | +0.04 | **+0.12** |
+| **harmonised + their post-processing** | **+0.15** | **+0.12** |
+| band power + their post-processing | +0.17 | +0.03 |
+| **electrode position** | **+0.27** | **+0.21** |
+
+**What the paper's own post-processing is worth.** Read from its notebook rather than its text,
+it averages logits over every chunk of a channel, collapses to one label per channel, and votes
+over five neighbouring channels. Applied to the collapsed full-band model it changes the margin
+by 0.004, because averaging chunks that all say one class has nothing to change. Applied to band
+power it adds 0.10 in one direction and clears the paper's margin. It is the identity on
+electrode position, which is spatially smooth by construction.
+
+**What the missing self-supervised stage is worth.** Nothing here. Its code runs per dataset and
+never sees two labs; the paper's own ablation shows it adding 0.000 on IBL within lab. It is not
+the missing piece (see [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D1).
+
+**What centering the embeddings is worth.** It removes the lab signature almost entirely, from
+0.997 to 0.526, and leaves cross-lab decoding at chance. The two labs are not the same structure
+displaced. Both controls pass: an uncentred head reproduces the run's own number, and centred
+in-lab decoding holds at 0.647.
+
+**What one preprocessing choice is worth.** Low-passing every input at 100 Hz, the corner chosen
+in Stage 2 before any cross-lab number existed, moves the reproduction from below the majority
+rate to the published margin in both directions. Balanced accuracy goes from 0.242 and 0.258 to
+**0.455 and 0.370** against chance 0.250. Calibration error falls from 0.556 and 0.656 to 0.348
+and 0.258. Lab identity falls from 0.997 and 0.994 to 0.830 and 0.735. With their post-processing
+on top, the result **beats the published margin in one direction and ties it in the other**,
+within the ±0.01 that reading a bar chart allows.
+
+The cross-lab failure of the reduced method was, substantially, the filtering difference recorded
+in Stage 1 before any model was trained. A model trained on frequencies one lab keeps and the
+other removes learns content that does not exist at test time.
+
+**What it does not close.** Electrode position is still ahead by 0.09 to 0.13 in both directions.
+Harmonisation gets a 95-million-parameter model to where the paper reports it; it does not get it
+past four numbers describing where the contact sits. And the calibration remedy still only half
+works: with the harmonised model, a temperature fitted in-lab reaches cross-lab partly in one
+direction (0.352 → 0.238, oracle 0.044) and not at all in the other.
+
+One thing did reverse. With the full-band model, no abstention score could rank its own errors.
+With the harmonised model, distance from the training distribution ranks them in both directions:
+keeping the fifth of predictions it trusts most gives 0.305 and 0.360 error against 0.506 and
+0.515 for everything. The model is no longer collapsed onto one class, so its embeddings vary
+with the input again, and a refusal built on them works.
+
 ## Calibration, abstention and ablation
 
 Full tables in [`docs/RESULTS_CALIBRATION.md`](docs/RESULTS_CALIBRATION.md), regenerated from the
