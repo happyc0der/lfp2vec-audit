@@ -35,14 +35,24 @@ class ChunkDataset(Dataset):
         labels: np.ndarray,
         fs: float,
         lowpass_hz: float | None = None,
+        whitener=None,
+        groups: np.ndarray | None = None,
     ) -> None:
         self.take = take
         self.chunk_ids = np.asarray(chunk_ids)
         self.labels = np.asarray(labels, dtype=np.int64)
         self.fs = float(fs)
         self.lowpass_hz = lowpass_hz
+        # Optional per-probe spectral whitening, applied before resampling so it acts on the
+        # stored signal. Needs each chunk's group to look up the right reference spectrum.
+        self.whitener = whitener
+        self.groups = None if groups is None else np.asarray(groups)
         if len(self.chunk_ids) != len(self.labels):
             raise ValueError(f"{len(self.chunk_ids)} chunks for {len(self.labels)} labels")
+        if (whitener is None) != (groups is None):
+            raise ValueError("whitener and groups must be given together")
+        if self.groups is not None and len(self.groups) != len(self.chunk_ids):
+            raise ValueError(f"{len(self.groups)} groups for {len(self.chunk_ids)} chunks")
 
     def __len__(self) -> int:
         return len(self.chunk_ids)
@@ -50,11 +60,10 @@ class ChunkDataset(Dataset):
     def __getitem__(self, position: int):
         import torch
 
-        waveform = prepare_waveforms(
-            self.take(self.chunk_ids[position : position + 1]),
-            fs=self.fs,
-            lowpass_hz=self.lowpass_hz,
-        )[0]
+        raw = self.take(self.chunk_ids[position : position + 1])
+        if self.whitener is not None:
+            raw = self.whitener.apply(raw, self.groups[position : position + 1])
+        waveform = prepare_waveforms(raw, fs=self.fs, lowpass_hz=self.lowpass_hz)[0]
         return torch.from_numpy(waveform), int(self.labels[position])
 
 

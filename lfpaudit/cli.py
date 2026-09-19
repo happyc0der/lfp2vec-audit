@@ -756,6 +756,9 @@ def finetune_run(
     max_per_class: int = typer.Option(6000),
     batch_size: int = typer.Option(8),
     lowpass: float = typer.Option(None, help="Low-pass corner in Hz for the harmonised band."),
+    whiten: bool = typer.Option(
+        False, help="Per-probe spectral whitening at train and test, fitted per probe."
+    ),
     permute_labels: bool = typer.Option(False, help="Shuffle training labels: a leakage check."),
     save_model: bool = typer.Option(
         False, help="Persist weights so later stages can ablate without retraining."
@@ -835,9 +838,28 @@ def finetune_run(
     typer.echo(f"train classes: {class_counts(train_y, list(REGIONS))}")
 
     ids = index["chunk_id"].to_numpy()
-    make = lambda rows, y: ChunkDataset(  # noqa: E731
-        corpus.take, ids[rows], y, fs=corpus.fs, lowpass_hz=config.lowpass_hz
-    )
+    whitener = None
+    if whiten:
+        from lfpaudit.features.whiten import GroupWhitener
+
+        # References are fitted per probe over the whole corpus, from a fixed sample of each
+        # probe's own chunks. No labels are read, and a test probe's reference comes only from
+        # that probe, so nothing from the target lab informs how the source is treated.
+        typer.echo("fitting per-probe whitening references")
+        whitener = GroupWhitener(corpus.fs).fit(corpus.take, index, seed=seed)
+    group_of = index["group"].to_numpy()
+
+    def make(rows, y):
+        return ChunkDataset(
+            corpus.take,
+            ids[rows],
+            y,
+            fs=corpus.fs,
+            lowpass_hz=config.lowpass_hz,
+            whitener=whitener,
+            groups=None if whitener is None else group_of[rows],
+        )
+
     train_set = make(train_rows, train_y)
     val_set = make(val_rows, labels_all[val_rows])
     test_set = make(test_rows, labels_all[test_rows])
@@ -866,6 +888,8 @@ def finetune_run(
     tag = f"{scheme}__{chosen.name}__seed{seed}"
     if config.lowpass_hz:
         tag += f"__lp{int(config.lowpass_hz)}"
+    if whiten:
+        tag += "__whiten"
     if permute_labels:
         tag += "__permuted"
 
@@ -877,6 +901,7 @@ def finetune_run(
             "scheme": scheme,
             "fold": chosen.name,
             "permuted": permute_labels,
+            "whiten": whiten,
             "model": asdict(info) if hasattr(info, "__dataclass_fields__") else str(info),
             "train": asdict(config),
             "n_train": int(len(train_rows)),
@@ -971,13 +996,7 @@ def finetune_run(
     # the frozen representation useless across labs?
     rng = np.random.default_rng(seed)
     probe_rows = rng.choice(len(index), size=min(6000, len(index)), replace=False)
-    probe_set = ChunkDataset(
-        corpus.take,
-        ids[probe_rows],
-        labels_all[probe_rows],
-        fs=corpus.fs,
-        lowpass_hz=config.lowpass_hz,
-    )
+    probe_set = make(probe_rows, labels_all[probe_rows])
     embeddings = embed(model, probe_set, policy.device, config.batch_size)
     probe = lab_identity_auc(
         embeddings,
