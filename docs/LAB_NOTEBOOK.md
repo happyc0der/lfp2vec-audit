@@ -675,4 +675,57 @@ is more confident out of distribution than in it. But "confident predictions are
 overstates a positive correlation into a negative one, and it would have been an easy sentence to
 leave in a write-up and be caught on later.
 
+### Both directions, and an asymmetry that one direction would have hidden
+
+The reverse direction agrees on calibration and disagrees on abstention. Running only the
+headline direction would have produced a cleaner story and a wrong one.
+
+**Calibration, consistent and if anything worse in reverse:**
+
+| | in-lab T | in-lab ECE | cross-lab ECE with that T | oracle T | gap |
+|---|---:|---:|---:|---:|---:|
+| IBL to Allen | 1.84 | 0.100 → 0.025 | 0.560 → 0.510 | 8.26 | 4.5× |
+| Allen to IBL | 1.72 | 0.114 → 0.054 | 0.656 → 0.580 | 11.79 | 6.8× |
+
+In both directions the in-lab fit works, the same scalar barely moves the cross-lab number, and
+the temperature the target actually needed is several times larger than anything the source could
+have told you.
+
+**Abstention, asymmetric:**
+
+| score | IBL to Allen | Allen to IBL |
+|---|---:|---:|
+| confidence | 0.315 | 0.400 |
+| entropy | 0.327 | 0.398 |
+| distance from training data | **0.955** | **0.495** |
+
+Distance detects the shift almost perfectly in one direction and not at all in the other. Since
+a supervised probe separates the two labs at 0.994 in *both*, the structure is certainly there;
+what changes is whether an unsupervised distance can reach it.
+
+The geometry says why:
+
+```
+train on IBL    val median distance  6.9   test median 16.9   ratio 2.44
+train on Allen  val median distance  9.1   test median  8.4   ratio 0.92
+```
+
+In both directions the model squeezes foreign recordings into a tight cluster: the test
+embeddings have roughly a fifth the spread of the validation ones. Training on IBL, that cluster
+lands well outside the reference shell and the detector fires. Training on Allen, the cluster is
+displaced by *more* in raw terms, 1.02 reference spreads against 0.84, but along directions the
+reference cloud is already wide in, so its Mahalanobis radius comes out ordinary.
+
+Mahalanobis measures distance from a mean in units of covariance. A displacement aligned with a
+high-variance direction of the reference is cheap by that metric however large it is. A
+supervised probe gets to pick its own direction; an unsupervised distance does not.
+
+**What this costs the earlier claim.** I wrote after the first direction that the representation
+knows the input is foreign while the output insists otherwise, and offered the distance score as
+the constructive result of the audit. Half of that survives. The structure is in the
+representation, confirmed at 0.994 in both directions. But recovering it *without labelled target
+data* worked in one direction and failed in the other, so a distance-based gate is not a
+dependable safeguard here, and reporting it as one on the strength of a single direction would
+have been exactly the kind of claim this project exists to check.
+
 
