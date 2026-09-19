@@ -1761,5 +1761,154 @@ def fixes_table(
     typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
+@app.command("adapt")
+def adapt(
+    run: str = typer.Option("cross_lab_ibl_to_allen__all_target_groups__seed0"),
+    results: Path = typer.Option(Path("results/finetune_v2")),
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    out: Path = typer.Option(Path("results/adapt")),
+    device: str = typer.Option(None),
+) -> None:
+    """Per-probe embedding centering on a saved run: lever C of the fixes table.
+
+    Re-embeds the run's own training subsample from its saved weights, since runs do not store
+    training embeddings, then refits a linear head on per-probe-centred training embeddings and
+    scores per-probe-centred test embeddings. Nothing from the target lab enters except the
+    membership of each chunk in its probe.
+    """
+    from lfpaudit.eval.adapt import predict_centered, refit_head
+    from lfpaudit.eval.folds import build_schemes
+    from lfpaudit.eval.probe import lab_identity_auc
+    from lfpaudit.models.dataset import ChunkDataset, balanced_sample
+    from lfpaudit.models.train import embed, load_model
+
+    run_dir = sorted(Path(results).glob(f"{run}/*/"))
+    if not run_dir:
+        raise typer.BadParameter(f"no run under {results}/{run}")
+    run_dir = run_dir[-1]
+    if not (run_dir / "model").exists():
+        raise typer.BadParameter(f"{run_dir} has no saved model; re-run with --save-model")
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    config = manifest["config"]
+    seed = int(manifest["seed"])
+    policy = pick_device(device)
+
+    corpus = _load_corpus(ibl, allen)
+    index = corpus.index
+    labels_all = index["region"].map(REGION_TO_INDEX).to_numpy()
+    positions = {int(c): i for i, c in enumerate(index["chunk_id"])}
+    ids = index["chunk_id"].to_numpy()
+
+    # Rebuild exactly the training subsample the run used: same fold, same seed, same cap.
+    fold = build_schemes(index, seed=seed)[config["scheme"]][0]
+    train_rows = np.array([positions[i] for i in fold.split.train], dtype=np.int64)
+    keep = balanced_sample(
+        labels_all[train_rows], train_rows, int(config["train"]["max_per_class"]), seed=seed
+    )
+    train_rows = train_rows[keep]
+    if len(train_rows) != int(config["n_train"]):
+        raise RuntimeError(
+            f"rebuilt {len(train_rows)} training rows but the run used {config['n_train']}"
+        )
+
+    model = load_model(run_dir, policy.device)
+    lowpass = config["train"].get("lowpass_hz")
+    train_set = ChunkDataset(
+        corpus.take, ids[train_rows], labels_all[train_rows], fs=corpus.fs, lowpass_hz=lowpass
+    )
+    typer.echo(f"embedding {len(train_rows)} training chunks from saved weights")
+    train_emb = embed(model, train_set, policy.device, batch_size=32)
+    Path(out).mkdir(parents=True, exist_ok=True)
+    train_groups = index.iloc[train_rows]["group"].to_numpy()
+
+    test_frame = pd.read_parquet(run_dir / "predictions.parquet")
+    test_emb = np.load(run_dir / "test_embeddings.npy")
+    if len(test_emb) != len(test_frame):
+        raise RuntimeError(f"{len(test_emb)} test embeddings for {len(test_frame)} predictions")
+    test_groups = test_frame["group"].to_numpy()
+    test_y = test_frame["label"].to_numpy()
+
+    np.save(Path(out) / f"{run}__train_embeddings.npy", train_emb.astype(np.float32))
+    train_y = labels_all[train_rows]
+    counts = np.bincount(test_y, minlength=len(REGIONS))
+    majority = float(counts.max() / counts.sum())
+
+    # Control 1: an uncentred head on the same re-embedded training set must land where the
+    # run's own head did. If it does not, the test embeddings and predictions are misaligned and
+    # nothing below means anything.
+    from lfpaudit.models.baselines import fit_predict
+
+    plain = evaluate(fit_predict("logreg", train_emb, train_y, test_emb, seed=seed), test_y)
+    typer.echo(
+        f"control, uncentred head:  raw {plain.accuracy:.3f} (margin "
+        f"{plain.accuracy - majority:+.3f})  balanced {plain.balanced_accuracy:.3f}"
+    )
+
+    # Control 2: centred training against centred in-lab validation. Separates "centering
+    # destroys region information" from "centering does not transfer it".
+    val_frame = pd.read_parquet(run_dir / "val_predictions.parquet")
+    val_emb = np.load(run_dir / "val_embeddings.npy")
+    head = refit_head(train_emb, train_y, train_groups, seed=seed)
+    in_lab = evaluate(
+        predict_centered(head, val_emb, val_frame["group"].to_numpy()),
+        val_frame["label"].to_numpy(),
+    )
+    typer.echo(
+        f"control, centred in-lab:  balanced {in_lab.balanced_accuracy:.3f} "
+        f"(chance {in_lab.chance:.3f})"
+    )
+
+    probs = predict_centered(head, test_emb, test_groups)
+    report = evaluate(probs, test_y)
+    typer.echo(
+        f"centred cross-lab:        raw {report.accuracy:.3f} (majority {majority:.3f}, margin "
+        f"{report.accuracy - majority:+.3f})  balanced {report.balanced_accuracy:.3f} "
+        f"(chance {report.chance:.3f})  ece {report.ece:.3f}"
+    )
+
+    # Does centering remove what the lab probe reads? Score it on the same probe sample.
+    from lfpaudit.eval.adapt import center_per_group
+
+    probe_rows = np.random.default_rng(seed).choice(
+        len(index), min(6000, len(index)), replace=False
+    )
+    probe_set = ChunkDataset(
+        corpus.take, ids[probe_rows], labels_all[probe_rows], fs=corpus.fs, lowpass_hz=lowpass
+    )
+    probe_emb = center_per_group(
+        embed(model, probe_set, policy.device, batch_size=32), index.iloc[probe_rows]["group"]
+    )
+    probe = lab_identity_auc(
+        probe_emb, index.iloc[probe_rows]["group"], index.iloc[probe_rows]["dataset"], seed=seed
+    )
+    typer.echo(probe.summary_line("lab identity after centering"))
+
+    Path(out).mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        {"chunk_id": test_frame["chunk_id"], "label": test_y, "group": test_groups}
+    )
+    for i, region in enumerate(REGIONS):
+        frame[f"logit_{region}"] = np.log(np.maximum(probs[:, i], 1e-12)).astype(np.float32)
+    frame.to_parquet(Path(out) / f"{run}__centred.parquet", index=False)
+    pd.DataFrame(
+        [
+            {
+                "run": run,
+                "raw_accuracy": report.accuracy,
+                "majority": majority,
+                "balanced_accuracy": report.balanced_accuracy,
+                "chance": report.chance,
+                "ece": report.ece,
+                "lab_identity_auc": probe.auc,
+                "control_uncentred_raw": plain.accuracy,
+                "control_uncentred_balanced": plain.balanced_accuracy,
+                "control_centred_in_lab_balanced": in_lab.balanced_accuracy,
+            }
+        ]
+    ).to_csv(Path(out) / f"{run}.csv", index=False)
+    typer.secho(f"wrote {out}/{run}.csv", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

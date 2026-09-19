@@ -232,6 +232,7 @@ def main() -> None:
     parser.add_argument("--ablations", type=Path, default=Path("results/ablations"))
     parser.add_argument("--calibration", type=Path, default=Path("results/calibration"))
     parser.add_argument("--abstention", type=Path, default=Path("results/abstention"))
+    parser.add_argument("--postprocess", type=Path, default=Path("results/postprocess"))
     parser.add_argument("--view", default="4class")
     args = parser.parse_args()
 
@@ -276,6 +277,15 @@ def main() -> None:
         curves = {f.stem.replace("_curves", ""): json.loads(f.read_text()) for f in curve_files}
         summary = pd.concat([pd.read_csv(f) for f in summary_files], ignore_index=True)
         print("wrote", abstention_figure(curves, summary, args.out / "abstention.png"))
+
+    fix_files = [
+        f for f in sorted(args.postprocess.glob("*.csv")) if not f.stem.endswith("__channels")
+    ]
+    if not fix_files:
+        print(f"no post-processing results under {args.postprocess}; skipping the fixes panel")
+    else:
+        table = pd.concat([pd.read_csv(f) for f in fix_files], ignore_index=True)
+        print("wrote", fixes_figure(table, args.out / "fixes.png"))
 
 
 def ablation_figure(tables: pd.DataFrame, out_path: Path) -> Path:
@@ -427,6 +437,78 @@ def abstention_figure(curves: dict[str, dict], summary: pd.DataFrame, out_path: 
         ax.legend(fontsize=7)
 
     fig.suptitle("Can the model tell which of its own predictions to discard?", fontsize=10)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
+    """Margin over the majority-class rate per configuration, both directions, on the paper's terms.
+
+    The dashed line is the paper's published margin read from its Figure 2e. Anything above it
+    transfers across labs better than the published model does, on the published metric.
+    """
+    paper = {
+        "cross_lab_ibl_to_allen": ("IBL → Allen", 0.11),
+        "cross_lab_allen_to_ibl": ("Allen → IBL", 0.12),
+    }
+    names = {
+        "all_target_groups__seed0": "reproduction",
+        "all_target_groups__seed0__lp100": "harmonised ≤100 Hz",
+        "baseline_geometry": "electrode position",
+        "baseline_bandpower_full": "band power",
+    }
+    colours = {
+        "reproduction": "#7b3294",
+        "harmonised ≤100 Hz": "#b8a0d0",
+        "electrode position": "#c1440e",
+        "band power": "#1f4e79",
+    }
+    chunk = table[table["level"] == "chunk"].copy()
+    chunk["scheme"] = chunk["run"].str.replace(r"__(all_target|baseline).*", "", regex=True)
+    chunk["config"] = (
+        chunk["run"]
+        .str.replace(r"^cross_lab_\w+?_to_\w+?__", "", regex=True)
+        .map(lambda k: names.get(k, k))
+    )
+    chunk["margin"] = chunk["raw_accuracy"] - chunk["majority"]
+
+    schemes = [s for s in paper if s in set(chunk["scheme"])]
+    fig, axes = plt.subplots(
+        1, len(schemes), figsize=(4.8 * len(schemes), 4.4), sharey=True, squeeze=False
+    )
+    for ax, scheme in zip(axes[0], schemes, strict=False):
+        part = chunk[chunk["scheme"] == scheme]
+        configs = [c for c in colours if c in set(part["config"])]
+        for position, config in enumerate(configs):
+            rows = part[part["config"] == config].set_index("stage")
+            before = float(rows.loc["raw", "margin"])
+            after = float(rows.loc["spatial", "margin"]) if "spatial" in rows.index else before
+            ax.bar(position - 0.19, before, width=0.36, color=colours[config], alpha=0.45, zorder=2)
+            ax.bar(position + 0.19, after, width=0.36, color=colours[config], zorder=2)
+        label, published = paper[scheme]
+        ax.axhline(published, color="#d62728", linestyle="--", linewidth=1.3, zorder=1)
+        ax.text(
+            len(configs) - 0.5,
+            published + 0.006,
+            f"paper +{published:.2f}",
+            color="#d62728",
+            fontsize=7.5,
+            ha="right",
+        )
+        ax.axhline(0, color="#222222", linewidth=0.8, zorder=1)
+        ax.set_title(label, fontsize=9)
+        ax.set_xticks(range(len(configs)))
+        ax.set_xticklabels(configs, rotation=25, ha="right", fontsize=8)
+        ax.tick_params(axis="y", labelsize=8)
+        ax.grid(axis="y", alpha=0.25, zorder=0)
+    axes[0][0].set_ylabel("raw accuracy minus majority-class rate", fontsize=8.5)
+    fig.suptitle(
+        "Cross-lab margin on the paper's own terms (light: before post-processing, solid: after)",
+        fontsize=9.5,
+    )
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")

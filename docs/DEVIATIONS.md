@@ -4,23 +4,27 @@ Every place this work differs from LFP2Vec (He et al., NeurIPS 2025) or from
 [`tianxiao18/lfp2vec`](https://github.com/tianxiao18/lfp2vec), and why. A reader comparing
 numbers should read this file first.
 
-## D1 — The self-supervised stage is skipped
+## D1 — The self-supervised stage is not run, and it could not have been the fix
 
-**Paper:** wav2vec2-base initialised from `facebook/wav2vec2-base`, then 50 epochs of
-self-supervised continuation on unlabelled LFP, then supervised fine-tuning.
+The published method continues self-supervised training on unlabelled LFP before fine-tuning.
+That stage is not run here: fifty epochs on the full corpus is roughly a hundred hours on this
+machine. Experiments start from the audio checkpoint and fine-tune, and every number in this
+repository is a number for that reduced method.
 
-**Here:** the audio checkpoint is fine-tuned directly, with no LFP self-supervised stage.
+Reading the upstream script line by line on 2026-09-19 changed what this deviation costs. The
+self-supervised stage is run **per dataset**: the script takes one `--data`, builds its unlabelled
+corpus from that dataset's own training sessions, and restarts from the audio checkpoint for every
+held-out session. It never sees two labs, so it cannot align them, and it is not a candidate
+explanation for the cross-lab gap between this reproduction and the published figures. The
+paper's own ablation is consistent with that: its Figure 5 shows the stage adding 0.000 on IBL
+and about 0.04 on Allen, within lab, with the smallest non-zero budget *lowering* accuracy on all
+three datasets.
 
-**Why:** the available compute is an M4 Pro laptop and Colab Pro. The upstream cluster script
-requests a single A100 for 24 hours. The paper's own ablation reports that audio initialisation
-with ~6k LFP trials matches random initialisation with over 400k, which is evidence that the
-audio prior carries a large part of the benefit and that the continuation stage is a refinement
-rather than the whole method.
-
-**Consequence:** absolute accuracies here are expected to sit below the published ones. Every
-comparison in this repository is between models trained under the *same* budget, so the
-relative claims (baseline floor, calibration under shift, band attribution) remain meaningful;
-the absolute ones do not transfer to the published model.
+Two further facts from the same reading. The "unlabelled" corpus is the labelled fine-tuning
+training set, same sessions and same trial indices. And the committed checkpoint guard is
+inverted, `if max_probe_acc > probe_val_acc` with `max_probe_acc` initialised to zero, so
+`save_pretrained` never executes and the subsequent reload either crashes or fine-tunes a stale
+checkpoint from an earlier run. The script as published cannot run the chain it describes.
 
 ## D2 — Reimplemented rather than vendored
 
@@ -216,4 +220,32 @@ cross-lab matrix.
 A further consequence: because the figure values were read from bar heights, every published
 number quoted in this repository is marked as figure-read and carries roughly ±0.01. Any error in
 reading them is mine, not the authors'.
+
+## D14 — Their post-processing does not match its description, and the faithful version is reimplemented
+
+The paper describes temporal smoothing as averaging class *probabilities* over a window with a
+class *prior*, then a majority vote over five nearest neighbours. The notebook that produced the
+published numbers, `script/post_processing.ipynb`, does something more specific:
+
+- It averages raw **logits**, not probabilities, over **every** test trial of a channel, and
+  argmaxes to one label per channel. There is no window; it is a collapse to per-channel.
+- Before the argmax it multiplies by a hand-set class weight `[1, 1, 5, 2, 1]`. This is neither
+  the uniform prior nor an empirical one, it is applied to logits that can be negative, and which
+  class each weight targets cannot be determined, because the notebook's label ordering and the
+  training script's disagree for the same dataset.
+- The spatial step takes the mode over the channel and its two index-neighbours either side on
+  the same shank, including itself, applied to the per-channel labels and then broadcast to every
+  trial. It exists only for the 8×128 SiNAPS layout; no spatial code exists for Neuropixels.
+
+The reimplementation in `lfpaudit/eval/postprocess.py` follows the notebook, not the text:
+logits are averaged and collapsed per channel, the spatial vote uses a ±2 window over channels
+ranked by depth within a probe, and ties resolve to the smallest label as `scipy.stats.mode`
+does. The class weight is replaced by the uniform prior the paper explicitly permits, because a
+hand-set vector of unknown orientation is a knob, and setting it by looking at results would be
+tuning on test.
+
+Whether the published cross-lab matrix (Figure 2e) includes post-processing is stated nowhere.
+Its diagonal for Allen, 0.83, exceeds both the within-session bar (0.645) and the post-processed
+bar (0.685) from the paper's other figures, which is consistent with it being raw rather than
+balanced accuracy and says nothing about post-processing either way.
 
