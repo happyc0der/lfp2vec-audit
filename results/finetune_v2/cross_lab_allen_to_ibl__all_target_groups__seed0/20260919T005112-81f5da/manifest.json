@@ -9,11 +9,11 @@
       "total_parameters": 94569861,
       "trainable_parameters": 90369413
     },
-    "n_test": 50200,
-    "n_train": 22000,
+    "n_test": 132600,
+    "n_train": 21700,
     "n_val": 4000,
     "permuted": false,
-    "scheme": "cross_lab_ibl_to_allen",
+    "scheme": "cross_lab_allen_to_ibl",
     "train": {
       "batch_size": 8,
       "epochs": 10,
@@ -45,16 +45,16 @@
     "python": "3.11.16",
     "torch": "2.14.0"
   },
-  "experiment": "finetune_cross_lab_ibl_to_allen__all_target_groups__seed0",
-  "finished_at": "2026-09-19T00:50:58+00:00",
+  "experiment": "finetune_cross_lab_allen_to_ibl__all_target_groups__seed0",
+  "finished_at": "",
   "git": {
     "branch": "main",
-    "commit": "ff5c46cf59265ae2b213d67e27a6727b0dbce6d4",
+    "commit": "4a8f36be43b4fbb78abf887776a858cfc8cc5a3d",
     "dirty": "true"
   },
   "lfpaudit_version": "0.1.0",
-  "run_id": "20260918T215850-5dc039",
+  "run_id": "20260919T005112-81f5da",
   "seed": 0,
-  "started_at": "2026-09-18T21:58:51+00:00",
-  "status": "ok"
+  "started_at": "2026-09-19T00:51:12+00:00",
+  "status": "started"
 }

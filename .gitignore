@@ -20,6 +20,11 @@ __pycache__/
 # run outputs that are too big to commit (metrics.json/manifest.json are kept)
 results/**/*.parquet
 results/**/*.npy
+# Saved model weights: 361 MB per run, well past GitHub's 100 MB limit and regenerable from the
+# committed config and seed. Caught by a rejected push rather than by this rule, which listed
+# only the artefact types that existed when it was written.
+results/**/model/
+results/**/*.safetensors
 wandb/
 
 # os

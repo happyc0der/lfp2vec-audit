@@ -589,4 +589,90 @@ position throughout. Across labs it is at chance in both directions, the worst o
 tested, and the most confident of everything tested. Its representation identifies the source lab
 at essentially perfect discrimination after training, exactly as it did before.
 
+---
+
+## 2026-09-18 (evening) — Stage 4: the remedy, the refusal, and a reading I had to correct
+
+### The re-run reproduces Stage 3 exactly
+
+Both cross-lab directions were re-run to save what Stage 3 did not: weights, validation logits,
+and embeddings for the validation and test sets. Same seed, same folds. Every epoch matched Stage
+3 to four decimal places, loss and validation accuracy alike, through early stopping at the same
+epoch, to the same test score of 0.242 and the same calibration error of 0.556.
+
+Training on this hardware is therefore deterministic given a seed, which is not guaranteed on
+Metal and is worth knowing before anyone reads a difference between two runs as a result.
+
+### Temperature scaling repairs the source lab and does not reach the target
+
+Fit one scalar on the in-lab validation logits, apply it to the cross-lab test logits:
+
+| | calibration error | negative log-likelihood | mean confidence | accuracy |
+|---|---:|---:|---:|---:|
+| in-lab, before | 0.100 | 0.610 | 0.923 | 0.825 |
+| in-lab, after T=1.84 | **0.025** | 0.475 | 0.838 | 0.825 |
+| cross-lab, before | 0.560 | 4.786 | 0.980 | 0.420 |
+| cross-lab, after T=1.84 | **0.510** | 2.670 | 0.929 | 0.420 |
+| cross-lab, oracle T=8.26 | 0.041 | 1.499 | 0.399 | 0.420 |
+
+In-lab the standard remedy works: calibration error falls fourfold and the model stops claiming
+more than it delivers. Applied across labs the same scalar moves calibration error by 0.05, from
+0.560 to 0.510, and leaves the model asserting 0.93 confidence at 42% accuracy.
+
+The target lab would have needed a temperature of **8.26**, four and a half times what in-lab
+fitting produces. With it, calibration error drops to 0.041. So the fix exists and is a single
+number, and it cannot be found without labelled data from the target lab, which is exactly what
+zero-shot transfer claims not to need.
+
+That is the finding in one line: the remedy the paper's Broader Impact section asks for does not
+reach the failure the paper's headline claim would produce.
+
+### Abstention: the output cannot refuse, the representation can
+
+| score | area under risk-coverage | error at full coverage | error at one-fifth | separates in-lab from cross-lab |
+|---|---:|---:|---:|---:|
+| confidence | 0.618 | 0.580 | 0.721 | 0.315 |
+| entropy | 0.625 | 0.580 | 0.732 | 0.327 |
+| distance from training data | 0.651 | 0.580 | 0.764 | **0.955** |
+
+Two separate things, and I first ran them together and read them wrongly.
+
+**Ranking.** All three areas sit above the base error rate of 0.580, so discarding the most
+uncertain predictions leaves a worse set than keeping everything. Keeping only the most confident
+fifth gives 72% error against 58% overall. Abstention by any of these scores makes things worse.
+
+**Detection.** Confidence and entropy score 0.315 and 0.327 at telling in-lab from cross-lab
+inputs, below the 0.5 of no information: the model is *more* confident on recordings from a lab
+it has never seen than on held-out data from its own. Distance from the training distribution
+scores 0.955.
+
+So the representation knows the input is foreign while the output insists it is not. That is the
+constructive result available here, and it is narrower than it first looks: the distance score is
+a **gate**, not a ranker. It can refuse an entire target recording. It cannot pick which cross-lab
+predictions to trust, because at chance accuracy none of them are.
+
+### The reading I had to correct
+
+Seeing every area above the base error rate, I wrote that the most confident predictions were the
+most wrong, implying confidence is anti-correlated with correctness. Checking it directly:
+
+```
+correlation(confidence, correct) = +0.132
+  confidence 0.00-0.50: n=    473  accuracy 0.108
+  confidence 0.50-0.90: n=  2 123  accuracy 0.139
+  confidence 0.90-0.99: n=  1 071  accuracy 0.470
+  confidence 0.99-1.01: n= 46 533  accuracy 0.435
+```
+
+The correlation is positive. Coarsely, the model's confidence carries a little real information.
+What actually happens is that 93% of cross-lab chunks land in the top confidence bin at once,
+because the model predicts visual cortex for 95% of them at mean confidence 0.997, and within
+that pile the very highest confidences are slightly worse than the rest. There is no inversion,
+only a mass of predictions at one confidence level with no discrimination inside it.
+
+Both the practical conclusions survive: confidence-based abstention does not help, and the model
+is more confident out of distribution than in it. But "confident predictions are the most wrong"
+overstates a positive correlation into a negative one, and it would have been an easy sentence to
+leave in a write-up and be caught on later.
+
 
