@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import re
 import subprocess
 from pathlib import Path
 
@@ -58,3 +59,43 @@ def test_every_submodule_imports():
 def test_expected_subpackages_are_present():
     for name in ("data", "features", "models", "eval"):
         assert (PACKAGE_ROOT / name / "__init__.py").exists(), f"missing subpackage {name}"
+
+
+def test_readme_status_matches_the_stage_table():
+    """The status banner must name the highest stage the table marks done.
+
+    This line has gone stale twice, both times because a string replacement silently matched
+    nothing while the surrounding commit reported success. A banner that claims an earlier stage
+    than the repository has reached is the single most misleading thing a reader can meet first.
+    """
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+
+    status = [line for line in readme.splitlines() if line.startswith("> **Status:")]
+    assert len(status) == 1, f"expected exactly one status banner, found {len(status)}"
+
+    rows = dict(
+        (int(number), "**done**" in state)
+        for number, state in re.findall(r"^\| (\d) \|[^|]*\|([^|]*)\|", readme, re.MULTILINE)
+    )
+    assert rows, "no stage rows found in the experiments table"
+
+    claimed = re.search(r"Status: Stage (\d)", status[0])
+    assert claimed, f"status banner does not name a stage: {status[0]}"
+    stage = int(claimed.group(1))
+
+    # Every stage up to and including the one claimed must be done. Checking only the maximum
+    # would let an unfinished earlier stage hide behind a later one that happens to be complete.
+    unfinished = sorted(n for n, is_done in rows.items() if n <= stage and not is_done)
+    assert not unfinished, f"banner claims Stage {stage} but stages {unfinished} are not done"
+    assert rows.get(stage), f"banner claims Stage {stage}, which the table does not mark done"
+
+    # And nothing past it may be done either, or the banner understates the repository, which is
+    # how this line went stale the first time. A row explicitly folded into an earlier stage is
+    # the one exception, since it describes work the claimed stage already covers.
+    folded = {
+        int(number)
+        for number, state in re.findall(r"^\| (\d) \|[^|]*\|([^|]*)\|", readme, re.MULTILINE)
+        if "folded" in state
+    }
+    ahead = sorted(n for n, is_done in rows.items() if n > stage and is_done and n not in folded)
+    assert not ahead, f"banner claims Stage {stage} but stages {ahead} are already done"

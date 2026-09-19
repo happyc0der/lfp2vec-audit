@@ -4,7 +4,7 @@
 
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
-> **Status: Stage 3 — fine-tune.** The reduced LFP2Vec method is trained and scored against every baseline on the same folds. Calibration and ablation analysis is still to come. Every claim below that is not yet measured is marked *planned*.
+> **Status: Stage 4 — calibration, abstention and ablation.** The reduced LFP2Vec method is trained, scored against every baseline on the same folds, and analysed for whether its confidence can be repaired, whether it can refuse, and what it listens to. What remains is the two-page note. Every claim below that is not yet measured is marked *planned*.
 
 ## What LFP2Vec is
 
@@ -244,7 +244,7 @@ that the pipeline normalises where it claims to.
 |---|---|---|
 | 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
 | 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | **done** |
-| 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | **in progress** |
+| 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | **done** |
 | 4 | Temperature scaling, band-stop and phase-randomisation ablations | **done** |
 | 5 | Selective prediction: risk–coverage under shift | **done**, folded into Stage 4 |
 | 6 | Two-page note and figures | planned |
