@@ -802,4 +802,78 @@ it offers: not a method, but a demonstration that some of the gap is preprocessi
 physiology, and that harmonising the two pipelines before training would be a cheaper experiment
 than any architectural change.
 
+---
+
+## 2026-09-19 (later) — Stage 5: closing the gap, on the paper's own terms
+
+The reproduction agrees with the paper within lab and falls below the majority-class rate across
+labs where the paper reports about eleven points above it. Stage 5 asks what the paper does that
+this reproduction does not, lever by lever, with every fix applied to every model alike.
+
+### First, what the paper's code actually does
+
+Reading `script/post_processing.ipynb` and `script/wav2vec_random_init.py` line by line settled
+three things (D1, D14):
+
+- The self-supervised stage runs **per dataset**. It never sees two labs and cannot align them.
+  It is not the missing piece, and it will not be run.
+- The post-processing averages **logits** over every trial of a channel, multiplies by a hand-set
+  class weight, and argmaxes to one label per channel; then takes the mode over ±2 index-neighbours
+  on the same shank. On their own session this is worth 0.716 → 0.793 → 0.836.
+- Whether the cross-lab matrix includes post-processing is stated nowhere.
+
+### Lever P: their post-processing, applied to everything
+
+Raw accuracy against the target lab's majority rate, the paper's Figure 2e convention:
+
+| | IBL → Allen, raw → after | margin | Allen → IBL, raw → after | margin |
+|---|---:|---:|---:|---:|
+| paper, Figure 2e *(figure)* | 0.56 | **+0.11** | 0.49 | **+0.12** |
+| reproduction | 0.420 → 0.424 | −0.03 | 0.309 → 0.307 | −0.06 |
+| band power | 0.520 → 0.622 | +0.06 → **+0.17** | 0.412 → 0.398 | +0.04 → +0.03 |
+| **electrode position** | 0.729 → 0.729 | **+0.27** | 0.577 → 0.577 | **+0.21** |
+
+Three findings.
+
+**Post-processing cannot rescue the reproduction**, in either direction, by more than 0.004.
+This was the prediction: the model predicts one class for 95% of chunks at 0.997 confidence, and
+averaging chunks that agree then voting over neighbours that agree has nothing to change. The
+unit test built for exactly this case passes on real data.
+
+**Electrode position beats the paper's published cross-lab margin by more than double**, in both
+directions, with no signal at all. On the paper's own metric and chance definition, four numbers
+describing where the contact sits transfer across labs better than the published model does.
+
+**Band power plus the paper's own post-processing clears the paper's margin** from IBL to Allen,
++0.17 against +0.11. Post-processing helps band power because its errors are noise, which is the
+case the pipeline was built for, rather than a systematic collapse.
+
+Within lab, post-processing lifts the three fine-tune folds from 0.716 to 0.764, a gain of 0.05,
+which matches what the paper reports for itself.
+
+### Lever C: per-probe embedding centering, with controls
+
+| | value |
+|---|---:|
+| control: uncentred head on re-embedded training set | raw 0.416, balanced 0.194 (run's own: 0.420, 0.193) |
+| control: centred training vs centred in-lab validation | balanced 0.647 (chance 0.250) |
+| centred cross-lab | raw 0.130, balanced 0.239 (chance 0.200) |
+| lab identity after centering | **0.526** (was 0.997) |
+
+The first control lands on the run's own numbers, so the saved embeddings are aligned and the
+rest can be read. The second shows centering keeps region information within lab.
+
+What it does is remove the lab signature almost completely and leave cross-lab decoding at chance
+regardless. The two labs are not the same structure displaced: once the displacement is removed,
+the within-probe geometry that separates regions in one lab still does not separate them in the
+other. Consistent with Stage 4's spectral-classifier finding, the region-discriminating content is
+itself lab-specific. The lever that attacks the embedding geometry directly fails, informatively.
+
+### Levers H and W act on the input instead
+
+H, fine-tuning with both datasets low-passed at 100 Hz, is running. W, per-probe spectral
+whitening, is implemented and tested and launches only if H falls short. Both remove the lab's
+spectral fingerprint before the model sees it, which after lever C is the only place left for the
+difference to live.
+
 
