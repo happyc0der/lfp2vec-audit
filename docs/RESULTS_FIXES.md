@@ -49,3 +49,5 @@ Published, Figure 2e *(figure)*: raw 0.49 against majority 0.37, **margin +0.12*
 | electrode position (control) | raw | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
 | electrode position (control) | temporal | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
 | electrode position (control) | spatial | 0.577 | +0.207 | 0.434 | 0.250 | — | — |
+| H: harmonised ≤100 Hz + C: per-probe centering | — | 0.465 | +0.096 | 0.413 | 0.250 | 0.145 | 0.463 |
+| *controls for the row above* | — | uncentred head 0.497 | | centred in-lab 0.638 | | | |

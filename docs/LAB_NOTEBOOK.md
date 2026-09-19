@@ -922,4 +922,24 @@ input again.
 Per-probe centering on H is running. Whitening launches next, because a tie in one direction is
 the case the plan reserved it for.
 
+### Lever C on the harmonised model
+
+| | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| H alone: raw margin / balanced | +0.041 / 0.364 | +0.116 / 0.370 |
+| H + C: raw margin / balanced | +0.034 / 0.355 | +0.096 / 0.413 |
+| H + C calibration error | 0.389 | **0.145** |
+| lab identity after C | 0.494 | 0.463 |
+| control: uncentred head | +0.007 / 0.334 | +0.127 / 0.412 |
+| control: centred in-lab | 0.574 | 0.638 |
+
+Centering removes what remained of the lab signature, to 0.49 and 0.46, and is roughly neutral
+on transfer: slightly worse raw accuracy in both directions, and in Allen → IBL a better balanced
+accuracy, meaning it trades majority-class hits for minority-class ones. It produces the best
+cross-lab calibration error in the project, 0.145, in that direction.
+
+The reading is the same as on the full-band model, at a smaller scale. The lab signature and the
+region signal are not separable by a translation. What harmonisation did was shrink the
+signature; what centering does is remove the remainder without touching what limits transfer.
+
 

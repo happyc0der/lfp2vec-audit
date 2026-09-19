@@ -1,0 +1,2 @@
+run,raw_accuracy,majority,balanced_accuracy,chance,ece,lab_identity_auc,control_uncentred_raw,control_uncentred_balanced,control_centred_in_lab_balanced
+cross_lab_ibl_to_allen__all_target_groups__seed0__lp100,0.48611553784860556,0.45219123505976094,0.35490570897149354,0.2,0.3890065316983899,0.49411417219503556,0.45924302788844623,0.33397680395282286,0.5744923750267721
