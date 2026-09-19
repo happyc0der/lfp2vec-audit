@@ -1594,6 +1594,12 @@ def postprocess(
     allen: Path = typer.Option(Path("data/stores/allen")),
     out: Path = typer.Option(Path("results/postprocess")),
     window: int = typer.Option(2, help="Neighbours each side for the spatial vote."),
+    baseline: str = typer.Option(
+        None,
+        help="Instead of a fine-tune run, post-process a Stage 2 baseline's saved predictions "
+        "for the scheme named by --run, e.g. geometry or bandpower_full.",
+    ),
+    baselines_dir: Path = typer.Option(Path("results/baselines/predictions")),
 ) -> None:
     """Apply the paper's post-processing to a saved run and score every stage.
 
@@ -1603,13 +1609,31 @@ def postprocess(
     """
     from lfpaudit.eval.postprocess import apply_paper_pipeline, channel_level_scores
 
-    run_dir = sorted(Path(results).glob(f"{run}/*/"))
-    if not run_dir:
-        raise typer.BadParameter(f"no run under {results}/{run}")
-    run_dir = run_dir[-1]
-    frame = pd.read_parquet(run_dir / "predictions.parquet")
+    if baseline is not None:
+        # A Stage 2 baseline stores one file per target probe with class probabilities. Their
+        # logs serve as logits for the pipeline: averaging log-probabilities is the same
+        # operation the notebook applies to logits, and argmax is unchanged by the log.
+        scheme = run.split("__all_target_groups")[0]
+        files = sorted(Path(baselines_dir).glob(f"{scheme}__4class__{baseline}__logreg__*.parquet"))
+        if not files:
+            raise typer.BadParameter(
+                f"no {baseline} predictions for {scheme} under {baselines_dir}"
+            )
+        frame = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+        probs = frame[[f"p_{r}" for r in REGIONS]].to_numpy(dtype=np.float64)
+        for i, region in enumerate(REGIONS):
+            frame[f"logit_{region}"] = np.log(np.maximum(probs[:, i], 1e-12))
+        run = f"{scheme}__baseline_{baseline}"
+    else:
+        run_dir = sorted(Path(results).glob(f"{run}/*/"))
+        if not run_dir:
+            raise typer.BadParameter(f"no run under {results}/{run}")
+        run_dir = run_dir[-1]
+        frame = pd.read_parquet(run_dir / "predictions.parquet")
 
     corpus = _load_corpus(ibl, allen)
+    if "group" not in frame.columns:
+        frame = frame.join(corpus.index.set_index("chunk_id")[["group"]], on="chunk_id")
     geometry = corpus.index.set_index("chunk_id")[["channel", "depth_um"]]
     frame = frame.join(geometry, on="chunk_id")
     logits = frame[[f"logit_{r}" for r in REGIONS]].to_numpy()
@@ -1649,6 +1673,92 @@ def postprocess(
     pd.DataFrame(rows).to_csv(Path(out) / f"{run}.csv", index=False)
     result.channels.to_csv(Path(out) / f"{run}__channels.csv", index=False)
     typer.secho(f"wrote {out}/{run}.csv", fg=typer.colors.GREEN)
+
+
+@app.command("fixes-table")
+def fixes_table(
+    postprocess_dir: Path = typer.Option(Path("results/postprocess")),
+    calibration_dir: Path = typer.Option(Path("results/calibration")),
+    finetune_dir: Path = typer.Option(Path("results/finetune_v2")),
+    out: Path = typer.Option(Path("docs/RESULTS_FIXES.md")),
+) -> None:
+    """Assemble every fix configuration beside the paper's cross-lab margin.
+
+    One row per configuration, both directions, in both of the paper's metrics. Rows appear as
+    their result files do, so the table is honest about what has and has not been run.
+    """
+    paper = {
+        "cross_lab_ibl_to_allen": ("IBL → Allen", 0.56, 0.45),
+        "cross_lab_allen_to_ibl": ("Allen → IBL", 0.49, 0.37),
+    }
+
+    def lab_identity(tag: str) -> str:
+        found = sorted(Path(finetune_dir).glob(f"{tag}/*/metrics.json"))
+        if not found:
+            return "—"
+        return f"{json.loads(found[-1].read_text()).get('lab_identity_auc', float('nan')):.3f}"
+
+    def cross_lab_ece(tag: str) -> str:
+        found = Path(calibration_dir) / f"{tag}.json"
+        if not found.exists():
+            return "—"
+        return f"{json.loads(found.read_text())['cross_lab']['ece_before']:.3f}"
+
+    lines = [
+        "# Closing the cross-lab gap",
+        "",
+        "Every configuration below uses **no labels from the target lab**. Post-processing is the",
+        "paper's own pipeline applied identically to every model, electrode position included.",
+        "Published values are read from Figure 2e and carry about ±0.01.",
+        "",
+        "Raw accuracy is reported because that is the paper's cross-lab metric; balanced accuracy",
+        "because it is the honest one. `margin` is raw accuracy minus the target lab's",
+        "majority-class rate, the paper's definition of chance.",
+        "",
+    ]
+
+    files = sorted(Path(postprocess_dir).glob("*.csv"))
+    files = [f for f in files if not f.stem.endswith("__channels")]
+    table = pd.concat([pd.read_csv(f) for f in files], ignore_index=True) if files else None
+
+    for scheme, (label, published, majority) in paper.items():
+        lines += [
+            f"## {label}",
+            "",
+            f"Published, Figure 2e *(figure)*: raw {published:.2f} against majority "
+            f"{majority:.2f}, **margin {published - majority:+.2f}**.",
+            "",
+            "| configuration | stage | raw | margin | balanced | chance | "
+            "cross-lab ECE | lab identity |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        if table is None:
+            lines += ["| *(no results yet)* | | | | | | | |", ""]
+            continue
+        part = table[(table["run"].str.startswith(scheme)) & (table["level"] == "chunk")]
+        for run, group in part.groupby("run", sort=False):
+            name = run.replace(f"{scheme}__", "")
+            name = {
+                "all_target_groups__seed0": "reproduction (Stage 3)",
+                "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
+                "baseline_geometry": "electrode position (control)",
+                "baseline_bandpower_full": "band power (control)",
+            }.get(name, name)
+            tag = run if "baseline" not in run else None
+            for row in group.itertuples():
+                lines.append(
+                    f"| {name} | {row.stage} | {row.raw_accuracy:.3f} | "
+                    f"{row.raw_accuracy - row.majority:+.3f} | {row.balanced_accuracy:.3f} | "
+                    f"{row.chance:.3f} | {cross_lab_ece(tag) if tag else '—'} | "
+                    f"{lab_identity(tag) if tag else '—'} |"
+                )
+        lines.append("")
+
+    text = "\n".join(lines)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
+    typer.echo(text)
+    typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover
