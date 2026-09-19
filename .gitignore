@@ -29,3 +29,9 @@ wandb/
 
 # os
 .DS_Store
+
+# LaTeX side-files for the note; note.pdf itself is committed
+note/*.aux
+note/*.log
+note/*.out
+note/build.log

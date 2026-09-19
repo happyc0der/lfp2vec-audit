@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 CLI := .venv/bin/lfpaudit
 
-.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table calibrate abstain ablate stage4-report postprocess adapt harmonised fixes-table baselines finetune ablate figures clean
+.PHONY: setup lint format test smoke gate data-ibl data-allen splits real-smoke cards inspect stage1 features features-w2v2 lab-discriminator results-table calibrate abstain ablate stage4-report postprocess adapt harmonised fixes-table note baselines finetune ablate figures clean
 
 setup:                ## create the virtualenv and install the package
 	uv venv --python 3.11
@@ -93,6 +93,9 @@ harmonised:           ## lever H: fine-tune both directions low-passed at 100 Hz
 
 fixes-table:          ## regenerate docs/RESULTS_FIXES.md from saved results
 	$(CLI) fixes-table
+
+note:                 ## build the two-page note (needs xelatex)
+	cd note && xelatex -interaction=nonstopmode -halt-on-error note.tex > build.log
 
 finetune:
 	@echo "Stage 3 - not implemented yet"
