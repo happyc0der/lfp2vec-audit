@@ -942,4 +942,25 @@ The reading is the same as on the full-band model, at a smaller scale. The lab s
 region signal are not separable by a translation. What harmonisation did was shrink the
 signature; what centering does is remove the remainder without touching what limits transfer.
 
+### The same bug, a second time, with a comment saying it was avoided
+
+The whitening runs were chained to start when the centering runs released the GPU:
+
+```
+while pgrep -f "bin/lfpaudit adapt" >/dev/null; do sleep 60; done
+```
+
+with a comment above it reading "by waiting on their own process rather than polling a pattern
+that could match this shell." The pattern `bin/lfpaudit adapt` appears verbatim in that shell's
+own command line. It matched itself and waited forever, exactly as the Stage 3 chain did with
+`lfpaudit finetune run`. Caught within the hour this time, because after Stage 3 the habit is to
+check that the launched thing is burning processor time rather than trusting that the launch
+happened. The cost was under an hour of idle GPU.
+
+The comment is the instructive part. I knew the failure mode, named it, and reproduced it in the
+next line, because the check I wrote was still a pattern match against process names and any
+such check can match the process doing the checking. The only version that cannot fail this way
+is the one that does not poll: run the second job on the line after the first in one script, or
+wait on a specific process id. Whitening now runs that way.
+
 
