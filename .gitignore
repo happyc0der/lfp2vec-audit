@@ -35,3 +35,6 @@ note/*.aux
 note/*.log
 note/*.out
 note/build.log
+
+# Local-only working files
+private/
