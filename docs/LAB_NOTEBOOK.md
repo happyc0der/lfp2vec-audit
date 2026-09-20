@@ -963,4 +963,29 @@ such check can match the process doing the checking. The only version that canno
 is the one that does not poll: run the second job on the line after the first in one script, or
 wait on a specific process id. Whitening now runs that way.
 
+### Lever W: whitening is worse than harmonisation, decisively
+
+Per-probe spectral whitening at train and test, both directions, on the paper's terms:
+
+| | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| H, harmonised: raw margin / balanced | +0.041 / 0.455 | +0.116 / 0.370 |
+| **W, whitened: raw margin / balanced** | **−0.162 / 0.321** | +0.118 / 0.368 |
+| W calibration error | 0.534 | 0.333 |
+| W lab identity | 0.912 | 0.805 |
+
+In one direction whitening is worse than doing nothing at all: −0.162 against the full-band
+model's −0.032. In the other it ties harmonisation on accuracy and loses on calibration and lab
+identity. Their post-processing hurts it in both directions.
+
+The reading: whitening removes too much. Dividing every channel by its probe's mean spectrum
+erases the spectral shape the whole probe shares, and on a hippocampal probe that shared shape,
+strong theta, elevated gamma, *is* part of what says hippocampus. Harmonisation clips only the
+band where the labs' pipelines disagree and leaves the rest; whitening flattens everything and
+throws the anatomy out with the acquisition.
+
+One number worth keeping from W: in Allen → IBL its distance-based abstention is the strongest
+in the project, 0.174 error on the fifth it trusts most against 0.512 overall. The representation
+is well organised even where its classifier is not. Not pursued further; the lever is H.
+
 

@@ -1761,6 +1761,7 @@ def fixes_table(
             name = {
                 "all_target_groups__seed0": "reproduction (Stage 3)",
                 "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
+                "all_target_groups__seed0__whiten": "W: per-probe whitening",
                 "baseline_geometry": "electrode position (control)",
                 "baseline_bandpower_full": "band power (control)",
             }.get(name, name)

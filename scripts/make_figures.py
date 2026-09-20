@@ -457,12 +457,14 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
     names = {
         "all_target_groups__seed0": "reproduction",
         "all_target_groups__seed0__lp100": "harmonised ≤100 Hz",
+        "all_target_groups__seed0__whiten": "whitened",
         "baseline_geometry": "electrode position",
         "baseline_bandpower_full": "band power",
     }
     colours = {
         "reproduction": "#7b3294",
         "harmonised ≤100 Hz": "#b8a0d0",
+        "whitened": "#d9cce6",
         "electrode position": "#c1440e",
         "band power": "#1f4e79",
     }

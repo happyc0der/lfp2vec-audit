@@ -20,6 +20,9 @@ Published, Figure 2e *(figure)*: raw 0.56 against majority 0.45, **margin +0.11*
 | H: harmonised ≤100 Hz | raw | 0.494 | +0.041 | 0.364 | 0.200 | 0.352 | 0.830 |
 | H: harmonised ≤100 Hz | temporal | 0.582 | +0.129 | 0.423 | 0.200 | 0.352 | 0.830 |
 | H: harmonised ≤100 Hz | spatial | 0.598 | +0.145 | 0.444 | 0.200 | 0.352 | 0.830 |
+| W: per-probe whitening | raw | 0.291 | -0.162 | 0.257 | 0.200 | 0.534 | 0.912 |
+| W: per-probe whitening | temporal | 0.279 | -0.173 | 0.260 | 0.200 | 0.534 | 0.912 |
+| W: per-probe whitening | spatial | 0.263 | -0.189 | 0.242 | 0.200 | 0.534 | 0.912 |
 | band power (control) | raw | 0.520 | +0.064 | 0.379 | 0.250 | — | — |
 | band power (control) | temporal | 0.596 | +0.141 | 0.424 | 0.250 | — | — |
 | band power (control) | spatial | 0.622 | +0.167 | 0.436 | 0.250 | — | — |
@@ -43,6 +46,9 @@ Published, Figure 2e *(figure)*: raw 0.49 against majority 0.37, **margin +0.12*
 | H: harmonised ≤100 Hz | raw | 0.485 | +0.116 | 0.370 | 0.250 | 0.258 | 0.735 |
 | H: harmonised ≤100 Hz | temporal | 0.495 | +0.125 | 0.361 | 0.250 | 0.258 | 0.735 |
 | H: harmonised ≤100 Hz | spatial | 0.493 | +0.124 | 0.360 | 0.250 | 0.258 | 0.735 |
+| W: per-probe whitening | raw | 0.488 | +0.118 | 0.368 | 0.250 | 0.333 | 0.805 |
+| W: per-probe whitening | temporal | 0.465 | +0.096 | 0.335 | 0.250 | 0.333 | 0.805 |
+| W: per-probe whitening | spatial | 0.465 | +0.096 | 0.335 | 0.250 | 0.333 | 0.805 |
 | band power (control) | raw | 0.412 | +0.042 | 0.333 | 0.250 | — | — |
 | band power (control) | temporal | 0.403 | +0.033 | 0.332 | 0.250 | — | — |
 | band power (control) | spatial | 0.398 | +0.029 | 0.329 | 0.250 | — | — |
