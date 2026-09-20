@@ -273,6 +273,7 @@ Raw accuracy minus the target lab's majority-class rate, the paper's own metric 
 | + per-probe embedding centering | −0.32 | — |
 | **harmonised band ≤100 Hz** | +0.04 | **+0.12** |
 | **harmonised + their post-processing** | **+0.15** | **+0.12** |
+| per-probe spectral whitening | −0.16 | +0.12 |
 | band power + their post-processing | +0.17 | +0.03 |
 | **electrode position** | **+0.27** | **+0.21** |
 
@@ -303,6 +304,11 @@ within the ±0.01 that reading a bar chart allows.
 The cross-lab failure of the reduced method was, substantially, the filtering difference recorded
 in Stage 1 before any model was trained. A model trained on frequencies one lab keeps and the
 other removes learns content that does not exist at test time.
+
+**What whitening is worth.** Flattening each probe's whole spectrum, the more thorough form of
+the same idea, is worse than harmonisation in both directions and worse than doing nothing in
+one. It erases the spectral shape a whole probe shares, and on a hippocampal probe that shape is
+part of what says hippocampus. Clipping only the band where the pipelines disagree keeps it.
 
 **What it does not close.** Electrode position is still ahead by 0.09 to 0.13 in both directions.
 Harmonisation gets a 95-million-parameter model to where the paper reports it; it does not get it

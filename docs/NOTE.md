@@ -64,10 +64,12 @@ direction and ties it in the other, with no labels from the target lab.
 | harmonised band + paper's post-processing | **+0.15** | **+0.12** |
 | electrode position, no signal | **+0.27** | **+0.21** |
 
-Two levers were ruled out along the way. The paper's post-processing, averaging logits over a
+Three levers were ruled out along the way. The paper's post-processing, averaging logits over a
 channel then voting over five neighbours, moves the collapsed model by 0.004. Subtracting each
 probe's mean embedding removes the lab signature almost entirely and leaves transfer at chance:
-the two labs are not the same structure displaced.
+the two labs are not the same structure displaced. And whitening each probe's whole spectrum,
+the thorough form of harmonisation, is worse than harmonisation in both directions, because the
+spectral shape a probe shares is part of what says which structure it is in.
 
 ## What this says
 

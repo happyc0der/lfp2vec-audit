@@ -100,10 +100,12 @@ electrode position, no signal & \textbf{+0.27} & \textbf{+0.21} \\
 post-processing, solid after; dashed line is the published margin.}
 \end{figure}
 
-Two levers were ruled out along the way. The paper's post-processing, averaging logits over a
+Three levers were ruled out along the way. The paper's post-processing, averaging logits over a
 channel then voting over five neighbours, moves the collapsed model by 0.004. Subtracting each
 probe's mean embedding removes the lab signature almost entirely and leaves transfer at chance:
-the two labs are not the same structure displaced.
+the two labs are not the same structure displaced. And whitening each probe's whole spectrum,
+the thorough form of harmonisation, is worse than harmonisation in both directions, because the
+spectral shape a probe shares is part of what says which structure it is in.
 
 \section{What this says}
 The reduced method does what the paper reports within a lab, does not beat where the electrode
