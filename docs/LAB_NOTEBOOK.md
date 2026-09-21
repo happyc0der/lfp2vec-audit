@@ -988,4 +988,41 @@ One number worth keeping from W: in Allen → IBL its distance-based abstention 
 in the project, 0.174 error on the fifth it trusts most against 0.512 overall. The representation
 is well organised even where its classifier is not. Not pursued further; the lever is H.
 
+---
+
+## 2026-09-21 — I attacked my own headline and it fell over
+
+Preparing to strengthen the repository, I wrote down how its intended reader would attack each
+claim. The loudest one, that electrode position alone beats the signal-based models, had an
+obvious line of attack: position is only useful if it is known, so which of the four position
+features would a user actually have? Depth along the shank, yes. Lateral offset, yes. Channel
+number, yes. Depth as a fraction of the span of *kept* channels: no. Kept channels are chosen by
+histology label. That feature is computed from the answer.
+
+On its own it scores 0.81 and 0.76 across labs. Without it, position scores 0.09 and 0.30, at or
+below chance. The cross-lab "position beats everything" result was the leak and nothing else. Full
+ablation and the list of withdrawn claims are in DEVIATIONS D15; a correction notice went to the
+top of the public README within the hour, before the regenerated tables were ready, because a
+wrong claim with a notice on it is better than a wrong claim without one.
+
+Why no test or control caught it: the permutation controls shuffle training labels, which breaks
+the link between features and labels in *training*, but the leak lives in how a test-time feature
+is computed from test-time label scope. A permuted-label model cannot exploit it, so the control
+passes. The leakage verifier checks that no session is on both sides of a split, which was true.
+The feature was the fifth kind of mistake this project has made, and the first the existing guards
+were structurally unable to see. The new unit test asks the right question directly: does the
+feature change when a channel drops out of scope?
+
+What the corrected picture says is more useful than what it replaces. Honest position is strong
+exactly where insertions are stereotyped (IBL, 0.77), weak where they are not (Allen, 0.49), and
+worthless across labs. The signal is the opposite: about 0.70 within either lab. So the two are
+complementary, and the study built the same day measures how:
+
+- fusing them as a product of experts never hurts within lab, adding 0.02 to position on IBL and
+  0.20 to position on Allen;
+- on IBL the signal overtakes position once insertion depth is uncertain by more than roughly
+  ±280 µm, and the fusion stays above both at every level tested;
+- my expectation that the signal would rescue position near anatomical boundaries was wrong. Every
+  source degrades together near boundaries, where the labels themselves are least certain.
+
 

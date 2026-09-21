@@ -223,6 +223,81 @@ def load_finetune(root: Path) -> pd.DataFrame | None:
     return pd.concat(frames, ignore_index=True)
 
 
+def depth_uncertainty_figure(table: pd.DataFrame, out_path: Path) -> Path:
+    """Position, the signal, and their fusion as insertion depth becomes uncertain, within lab.
+
+    The signal never sees depth, so its line is flat. The position model is trained with the same
+    uncertainty it is tested under, so its curve is the best a position-only model can do.
+    """
+    schemes = [s for s in ("loso_ibl", "loso_allen") if s in set(table["scheme"])]
+    signal = next(
+        c
+        for c in table.columns
+        if c not in {"scheme", "fold", "half_width_um", "position", "chance"}
+        and not c.startswith("position+")
+    )
+    fused = f"position+{signal}"
+    styles = {
+        "position": ("#c1440e", "electrode position only"),
+        signal: ("#4a7c59", "signal only (frozen audio model)"),
+        fused: ("#1f4e79", "position and signal, fused"),
+    }
+    fig, axes = plt.subplots(
+        1, len(schemes), figsize=(4.9 * len(schemes), 4.0), sharey=True, squeeze=False
+    )
+    for ax, scheme in zip(axes[0], schemes, strict=False):
+        part = table[table["scheme"] == scheme]
+        mean = part.groupby("half_width_um")[list(styles)].mean()
+        sem = part.groupby("half_width_um")[list(styles)].sem()
+        x = np.arange(len(mean))
+        for column, (colour, label) in styles.items():
+            ax.plot(
+                x,
+                mean[column],
+                color=colour,
+                marker="o",
+                markersize=4,
+                linewidth=1.8,
+                label=label,
+                zorder=3,
+            )
+            ax.fill_between(
+                x,
+                mean[column] - sem[column],
+                mean[column] + sem[column],
+                color=colour,
+                alpha=0.15,
+                zorder=2,
+            )
+        chance = float(part["chance"].mean())
+        ax.axhline(chance, color="#d62728", linestyle="--", linewidth=1.1, zorder=1)
+        ax.text(
+            len(x) - 1,
+            chance + 0.012,
+            f"chance {chance:.2f}",
+            color="#d62728",
+            fontsize=7,
+            ha="right",
+        )
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"±{int(v)}" if v else "exact" for v in mean.index], fontsize=8)
+        ax.set_xlabel("uncertainty in insertion depth (µm)", fontsize=8.5)
+        ax.set_title(SCHEME_LABELS.get(scheme, scheme), fontsize=9)
+        ax.tick_params(axis="y", labelsize=8)
+        ax.set_ylim(0.2, 0.9)
+        ax.grid(alpha=0.25, zorder=0)
+    axes[0][0].set_ylabel("balanced accuracy, held-out sessions", fontsize=8.5)
+    axes[0][0].legend(fontsize=7.5, loc="lower left")
+    fig.suptitle(
+        "How well must insertion depth be known before position beats the signal?", fontsize=10
+    )
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", type=Path, default=Path("results/baselines"))
@@ -233,6 +308,7 @@ def main() -> None:
     parser.add_argument("--calibration", type=Path, default=Path("results/calibration"))
     parser.add_argument("--abstention", type=Path, default=Path("results/abstention"))
     parser.add_argument("--postprocess", type=Path, default=Path("results/postprocess"))
+    parser.add_argument("--position", type=Path, default=Path("results/position"))
     parser.add_argument("--view", default="4class")
     args = parser.parse_args()
 
@@ -286,6 +362,15 @@ def main() -> None:
     else:
         table = pd.concat([pd.read_csv(f) for f in fix_files], ignore_index=True)
         print("wrote", fixes_figure(table, args.out / "fixes.png"))
+
+    depth_path = args.position / "depth_uncertainty.csv"
+    if not depth_path.exists():
+        print(f"no position study under {args.position}; skipping the depth-uncertainty panel")
+    else:
+        print(
+            "wrote",
+            depth_uncertainty_figure(pd.read_csv(depth_path), args.out / "depth_uncertainty.png"),
+        )
 
 
 def ablation_figure(tables: pd.DataFrame, out_path: Path) -> Path:

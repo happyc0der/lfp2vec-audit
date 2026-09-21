@@ -249,3 +249,42 @@ Its diagonal for Allen, 0.83, exceeds both the within-session bar (0.645) and th
 bar (0.685) from the paper's other figures, which is consistent with it being raw rather than
 balanced accuracy and says nothing about post-processing either way.
 
+## D15 — The position baseline leaked test labels, and results built on it were withdrawn
+
+From Stage 2 until 21 September 2026 the electrode-position baseline used four features: depth
+along the shank, lateral offset, channel number, and depth rescaled to the span of channels kept
+on each probe. The last one is a leak. Kept channels are the ones whose histology label falls in
+the five target regions, so the span they cover is set by the test probe's own labels. A relative
+depth of zero means "the deepest in-scope structure" and one means "the shallowest", which is the
+anatomy itself, expressed as a fraction. Nothing a user knows before histology can produce it.
+
+Found by asking how a careful reader would attack the repository's loudest claim, that position
+alone beat the signal-based models across labs. Ablating the features settled it:
+
+| features | within IBL | within Allen | IBL → Allen | Allen → IBL |
+|---|---:|---:|---:|---:|
+| all four, as reported | 0.817 | 0.822 | 0.628 | 0.521 |
+| without the leaky feature | 0.774 | 0.491 | 0.092 | 0.298 |
+| the leaky feature alone | 0.831 | 0.829 | 0.810 | 0.764 |
+| *chance* | *0.298* | *0.358* | *0.358* | *0.298* |
+
+What was wrong as published:
+
+- "Electrode position beats the paper's cross-lab margin by more than double." Withdrawn. Honest
+  position is at or below chance across labs.
+- "Position beats every signal-based feature within lab." Holds on IBL, where the seven insertions
+  were chosen to hit the same structures (0.77 against 0.70 for the frozen audio model). Reversed on
+  Allen (0.49 against 0.70).
+- Every table, figure and sentence that placed a model "behind electrode position" across labs.
+
+What replaces it: `position_features()` is absolute depth and lateral offset only. Channel number
+is dropped too, since within a probe type it duplicates depth and across probe types its scale
+differs, making it a lab-identity cue. The leaky feature survives as `labelled_span_fraction()`,
+diagnostic only, with a unit test pinning the property that separates the two: honest position does
+not move when a channel drops out of scope, and the leaky feature does.
+
+The same selection of kept channels defines the evaluation set for every model, as it does in the
+original paper, so every score here is conditional on a channel being in scope. That is a property
+of the task as posed. What made the position feature a leak is that it *computed on* the selection
+rather than merely being evaluated within it.
+
