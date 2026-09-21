@@ -15,6 +15,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | amplitude | 0.401 | 0.190 |
 | bandpower_full | 0.384 | 0.147 |
 | bandpower_clean | 0.364 | 0.177 |
+| spectrum_clean | 0.361 | 0.238 |
 | w2v2_frozen | 0.304 | 0.631 |
 | position | 0.298 | 0.439 |
 
@@ -25,6 +26,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | cross_lab_ibl_to_allen__all_target_groups__seed0 | full | 20 | 0.340 +/- 0.098 | 0.358 | 0.535 | 0.997 |
 | cross_lab_ibl_to_allen__all_target_groups__seed0__lp100 | <=100 Hz | 10 | 0.468 +/- 0.147 | 0.358 | 0.361 | 0.830 |
 | cross_lab_ibl_to_allen__all_target_groups__seed0__whiten | full | 10 | 0.369 +/- 0.149 | 0.358 | 0.524 | 0.912 |
+| cross_lab_ibl_to_allen__all_target_groups__seed1__lp100 | <=100 Hz | 10 | 0.390 +/- 0.170 | 0.358 | 0.360 | 0.819 |
 
 Stage 2 baselines on the same scheme, for comparison:
 
@@ -34,6 +36,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | bandpower_full | 0.460 | 0.118 |
 | w2v2_frozen | 0.377 | 0.478 |
 | bandpower_clean | 0.366 | 0.132 |
+| spectrum_clean | 0.330 | 0.284 |
 | position | 0.233 | 0.668 |
 
 ## `loso_ibl`
@@ -52,6 +55,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | w2v2_frozen | 0.697 | 0.124 |
 | amplitude | 0.560 | 0.119 |
 | bandpower_full | 0.441 | 0.081 |
+| spectrum_clean | 0.436 | 0.102 |
 | bandpower_clean | 0.399 | 0.063 |
 
 ### `loso_ibl`: paired against the baselines on the same 3 sessions
@@ -62,6 +66,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | bandpower_clean | 0.429 | 0.716 | +0.287 | 3/3 |
 | bandpower_full | 0.479 | 0.716 | +0.236 | 3/3 |
 | position | 0.733 | 0.716 | -0.017 | 1/3 |
+| spectrum_clean | 0.459 | 0.716 | +0.257 | 3/3 |
 | w2v2_frozen | 0.709 | 0.716 | +0.007 | 2/3 |
 
 ## Leakage check

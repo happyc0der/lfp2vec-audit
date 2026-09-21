@@ -73,3 +73,18 @@ def test_planted_region_signatures_are_recoverable(synthetic_store):
         r: theta[(index["region"] == r).to_numpy()].mean() for r in index["region"].unique()
     }
     assert max(by_region, key=by_region.get) == "DG"
+
+
+def test_log_spectrum_is_amplitude_free_and_band_limited():
+    from lfpaudit.features.bandpower import log_spectrum
+
+    rng = np.random.default_rng(0)
+    t = np.arange(3750) / 1250.0
+    chunks = rng.normal(size=(4, 3750)) + 3 * np.sin(2 * np.pi * 8 * t)
+    features = log_spectrum(chunks, fs=1250.0)
+    assert features.shape == (4, 100)
+    assert np.allclose(features, log_spectrum(chunks * 7.0, fs=1250.0), atol=1e-5)
+    assert np.all(features.argmax(axis=1) == 7)  # the 8 Hz bin, counting from 1 Hz
+    # Energy above the range cannot reach the features except through normalisation.
+    loud = chunks + 50 * np.sin(2 * np.pi * 400 * t)
+    assert np.allclose(features, log_spectrum(loud, fs=1250.0), atol=1e-3)

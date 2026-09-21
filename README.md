@@ -13,8 +13,8 @@ things:
    paper's 0.68, from a laptop, without the self-supervised stage.
 2. **Across labs the reproduction fails, and the cause is preprocessing, not representation.** The
    two datasets are filtered differently above 100 Hz. Low-passing every input at 100 Hz takes
-   cross-lab transfer from chance to the level the paper reports, in both directions, using no
-   labels from the target lab.
+   cross-lab transfer from chance to well above it in both directions, using no labels from the
+   target lab. Whether it reaches the published margin depends on the seed: see result 3.
 3. **Two measurements the paper does not make change how its results read**: calibration under
    lab shift, which its Broader Impact section calls for, and an electrode-position control.
 
@@ -22,8 +22,8 @@ things:
 
 *Cross-lab transfer on the paper's own metric: raw accuracy minus the target lab's majority-class
 rate. Light bars before the paper's post-processing, solid after; the dashed line is the published
-margin, read from the paper's Figure 2e. One seed; two more per configuration are training and
-this figure regenerates from saved results.*
+margin, read from the paper's Figure 2e. Bars are means over the seeds finished so far, dots are
+individual seeds; more are training and this figure regenerates from saved results.*
 
 *Corrected 21 September 2026: an earlier version's position baseline leaked test labels. See
 [Corrections](#corrections).*
@@ -102,9 +102,26 @@ existed, and fine-tune again:
 | band power + the paper's post-processing (margin) | +0.17 | +0.03 |
 | electrode position (margin) | −0.24 | 0.00 |
 
-One preprocessing choice moves the reproduction from below the majority rate to the published
-margin in both directions, halves the calibration error, and removes much of the lab signature.
-On balanced accuracy the harmonised model is the best method tested in both directions. On the
+**Seed spread (added 20 September 2026).** The table above is seed 0. A second seed of the
+IBL → Allen model reaches a balanced accuracy of 0.36 and a post-processed margin of +0.02, not
++0.15: mean +0.08 ± 0.09 over two seeds. Harmonising reliably lifts transfer off the floor (on balanced
+accuracy every harmonised run beats every full-band run), but the claim that it clears the published +0.11 in
+this direction rests on one seed and is not supported yet. Remaining seeds are training;
+[`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md) always shows the current mean and spread.
+
+**No training at all does as well.** The untrained audio checkpoint with a linear head, on the
+same harmonised inputs, reaches margins of +0.09 and +0.13 with the paper's post-processing
+(balanced 0.48 and 0.36; chance 0.25; permuted-label controls at chance). That equals the
+fine-tuned mean across labs with no backpropagation through the encoder: one eight-minute forward
+pass against two and a half hours per fine-tune, and no seed to be lucky with. It is scored on a
+fixed 25-chunks-per-channel subsample. Within a lab the same model gives up accuracy (0.62 on IBL
+against 0.70 full band), so the high band is useful inside a lab and harmful between labs. A
+100-bin power spectrum below 100 Hz with the same linear head does not transfer (0.33 and 0.36
+balanced), so what carries across labs is in the audio features, not in coarse spectral power.
+
+On seed 0, one preprocessing choice moves the reproduction from below the majority rate to the
+published margin in both directions, halves the calibration error, and removes much of the lab signature.
+On balanced accuracy the seed-0 harmonised model is the best method tested in both directions. On the
 paper's raw-margin metric, six-band power with the paper's smoothing is slightly ahead in one
 direction (+0.17 against +0.15) and far behind in the other.
 

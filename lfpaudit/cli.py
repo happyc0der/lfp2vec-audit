@@ -433,6 +433,15 @@ def _build_feature_table(
                     bands.pop("ripple")
                 typer.echo(f"  building {name} for {store_name} ({len(rows)} chunks)")
                 return band_power(store.take(rows), fs=store.fs, bands=bands)
+            if name == "spectrum_clean":
+                from lfpaudit.features.bandpower import log_spectrum
+
+                typer.echo(f"  building {name} for {store_name} ({len(rows)} chunks)")
+                parts_ = [
+                    log_spectrum(store.take(rows[i : i + 8192]), fs=store.fs)
+                    for i in range(0, len(rows), 8192)
+                ]
+                return np.concatenate(parts_, axis=0)
             if name == "w2v2_frozen":
                 from lfpaudit.features.embed import embed_chunks
 
@@ -1638,6 +1647,7 @@ def postprocess(
         help="Instead of a fine-tune run, post-process a Stage 2 baseline's saved predictions "
         "for the scheme named by --run, e.g. position or bandpower_full.",
     ),
+    baseline_model: str = typer.Option("logreg", help="Which model's saved predictions to use."),
     baselines_dir: Path = typer.Option(Path("results/baselines/predictions")),
     view: str = typer.Option(
         "4class", help="Class view to score on, so every row of the fixes table shares chunks."
@@ -1656,7 +1666,9 @@ def postprocess(
         # logs serve as logits for the pipeline: averaging log-probabilities is the same
         # operation the notebook applies to logits, and argmax is unchanged by the log.
         scheme = run.split("__all_target_groups")[0]
-        files = sorted(Path(baselines_dir).glob(f"{scheme}__4class__{baseline}__logreg__*.parquet"))
+        files = sorted(
+            Path(baselines_dir).glob(f"{scheme}__4class__{baseline}__{baseline_model}__*.parquet")
+        )
         if not files:
             raise typer.BadParameter(
                 f"no {baseline} predictions for {scheme} under {baselines_dir}"
@@ -1665,7 +1677,8 @@ def postprocess(
         probs = frame[[f"p_{r}" for r in REGIONS]].to_numpy(dtype=np.float64)
         for i, region in enumerate(REGIONS):
             frame[f"logit_{region}"] = np.log(np.maximum(probs[:, i], 1e-12))
-        run = f"{scheme}__baseline_{baseline}"
+        suffix = "" if baseline_model == "logreg" else f"_{baseline_model}"
+        run = f"{scheme}__baseline_{baseline}{suffix}"
     else:
         run_dir = sorted(Path(results).glob(f"{run}/*/"))
         if not run_dir:
@@ -1795,6 +1808,7 @@ def fixes_table(
             "finetune": "fine-tuned, full band",
             "finetune__lp100": "fine-tuned, filters matched (≤100 Hz)",
             "finetune__whiten": "fine-tuned, per-probe whitening",
+            "baseline_w2v2_frozen_lp100": "untrained checkpoint + linear head, filters matched",
             "baseline_position": "electrode position (control)",
             "baseline_bandpower_full": "band power (control)",
         }

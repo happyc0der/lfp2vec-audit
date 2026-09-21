@@ -544,12 +544,14 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
     names = {
         "finetune": "fine-tuned, full band",
         "finetune__lp100": "fine-tuned, filters matched",
+        "baseline_w2v2_frozen_lp100": "no training, filters matched",
         "baseline_bandpower_full": "band power",
         "baseline_position": "electrode position",
     }
     colours = {
         "fine-tuned, full band": "#8f8f8f",
         "fine-tuned, filters matched": "#1f7a4d",
+        "no training, filters matched": "#7fbf9a",
         "band power": "#1f4e79",
         "electrode position": "#c1440e",
     }

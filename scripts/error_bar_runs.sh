@@ -15,6 +15,10 @@ mkdir -p $LOG
 
 run() {  # run <tag> <args...>
   local tag=$1; shift
+  # Re-running the script resumes it: a run whose log ends in a scored result is not repeated.
+  if grep -q "^4class:" "$LOG/eb_${tag}.log" 2>/dev/null; then
+    echo "=== $tag already complete, skipped ==="; return
+  fi
   echo "=== $tag start $(date '+%m-%d %H:%M') ==="
   .venv/bin/lfpaudit finetune run "$@" --budget-hours 4 --out results/finetune_v2 \
     > "$LOG/eb_${tag}.log" 2>&1 || echo "FAILED: $tag"

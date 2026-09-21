@@ -1,0 +1,6 @@
+run,stage,level,raw_accuracy,balanced_accuracy,chance,majority,n
+cross_lab_allen_to_ibl__baseline_w2v2_frozen_lp100,raw,chunk,0.49085972850678733,0.38876133439018434,0.25,0.3695324283559578,33150
+cross_lab_allen_to_ibl__baseline_w2v2_frozen_lp100,temporal,chunk,0.502262443438914,0.36712962962962964,0.25,0.3695324283559578,33150
+cross_lab_allen_to_ibl__baseline_w2v2_frozen_lp100,temporal,channel,0.502262443438914,0.36712962962962964,0.25,0.3695324283559578,1326
+cross_lab_allen_to_ibl__baseline_w2v2_frozen_lp100,spatial,chunk,0.4984917043740573,0.3640979689366786,0.25,0.3695324283559578,33150
+cross_lab_allen_to_ibl__baseline_w2v2_frozen_lp100,spatial,channel,0.4984917043740573,0.3640979689366786,0.25,0.3695324283559578,1326

@@ -1,11 +1,9 @@
 {
   "config": {
     "features": [
-      "position",
-      "position_leaky_span",
-      "amplitude"
+      "spectrum_clean"
     ],
-    "models": "constant,logreg",
+    "models": "logreg,mlp",
     "schemes": [
       "cross_lab_allen_to_ibl",
       "cross_lab_ibl_to_allen",
@@ -27,15 +25,15 @@
     "torch": "2.14.0"
   },
   "experiment": "baselines",
-  "finished_at": "2026-09-21T01:02:33+00:00",
+  "finished_at": "2026-09-21T02:28:32+00:00",
   "git": {
     "branch": "main",
-    "commit": "4fd892d2749f20d9ecd6a4094dfa8893e31f4a0e",
+    "commit": "de1c64bd0cb0322a202bab465f707283b09aba8d",
     "dirty": "true"
   },
   "lfpaudit_version": "0.1.0",
-  "run_id": "20260921T010100-e85190",
+  "run_id": "20260921T021948-016299",
   "seed": 0,
-  "started_at": "2026-09-21T01:01:01+00:00",
+  "started_at": "2026-09-21T02:19:49+00:00",
   "status": "ok"
 }

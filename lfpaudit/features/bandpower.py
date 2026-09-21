@@ -75,3 +75,34 @@ def band_power(
 def band_feature_names(bands: dict[str, tuple[float, float]] | None = None) -> list[str]:
     """Column names matching :func:`band_power`, for coefficient tables and attribution plots."""
     return [f"{name}_{low:g}-{high:g}Hz" for name, (low, high) in (bands or BANDS).items()]
+
+
+#: The fine-resolution spectrum stops where the two datasets' preprocessing stops agreeing
+#: (DEVIATIONS D11). Both limits were fixed before any model saw these features.
+SPECTRUM_RANGE_HZ: tuple[float, float] = (1.0, 100.0)
+
+
+def log_spectrum(
+    chunks: np.ndarray,
+    fs: float,
+    low_hz: float = SPECTRUM_RANGE_HZ[0],
+    high_hz: float = SPECTRUM_RANGE_HZ[1],
+    batch: int = 8192,
+) -> np.ndarray:
+    """Relative log power at about 1 Hz resolution between ``low_hz`` and ``high_hz``.
+
+    The six canonical bands are a hand-made summary of the spectrum; this is the spectrum itself,
+    normalised per chunk so overall amplitude is gone. It is the cheapest model input that could
+    contain everything a spectral classifier reads. Shape is ``(n_chunks, n_bins)``.
+    """
+    chunks = np.asarray(chunks)
+    if chunks.ndim == 1:
+        chunks = chunks[None, :]
+    out = []
+    for start in range(0, len(chunks), batch):
+        freqs, psd = power_spectrum(chunks[start : start + batch], fs=fs)
+        mask = (freqs >= low_hz) & (freqs <= high_hz)
+        part = psd[:, mask]
+        part = part / np.maximum(part.sum(axis=-1, keepdims=True), 1e-20)
+        out.append(np.log10(part + 1e-12).astype(np.float32))
+    return np.concatenate(out, axis=0)
