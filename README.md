@@ -4,6 +4,8 @@
 
 **Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
 
+> **Correction, 21 September 2026.** The electrode-position baseline reported in this README included a feature that leaks test labels: depth rescaled to the span of channels carrying one of the five target labels, a span set by the test probe's own histology. On its own that feature scores 0.81 and 0.76 across labs; honest position, absolute depth along the shank, scores 0.09 and 0.30, at or below chance. Every statement below that position beats the signal-based models **across labs** is therefore wrong, and the within-lab position numbers are overstated (0.77 rather than 0.82 on IBL, 0.49 rather than 0.82 on Allen). The feature is fixed in `lfpaudit/features/geometry.py`; tables, figures and this README are being regenerated.
+>
 > **Status: Stage 4 — calibration, abstention and ablation.** The reduced LFP2Vec method is trained, scored against every baseline on the same folds, and analysed for whether its confidence can be repaired, whether it can refuse, and what it listens to. What remains is the two-page note. Every claim below that is not yet measured is marked *planned*.
 
 ## What LFP2Vec is

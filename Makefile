@@ -57,7 +57,7 @@ features-w2v2:        ## build frozen wav2vec2 embeddings (about 40 minutes on M
 	$(CLI) features build --which w2v2_frozen
 
 baselines:            ## the full sweep across every fold of every scheme
-	$(CLI) baselines run --which bandpower_full,bandpower_clean,geometry,amplitude,w2v2_frozen
+	$(CLI) baselines run --which bandpower_full,bandpower_clean,position,amplitude,w2v2_frozen
 
 lab-discriminator:    ## how separable are the two datasets
 	$(CLI) lab-discriminator
@@ -80,8 +80,8 @@ stage4-report:        ## regenerate docs/RESULTS_CALIBRATION.md from saved resul
 postprocess:          ## the paper's post-processing on every cross-lab run and control
 	$(CLI) postprocess --run cross_lab_ibl_to_allen__all_target_groups__seed0
 	$(CLI) postprocess --run cross_lab_allen_to_ibl__all_target_groups__seed0
-	$(CLI) postprocess --run cross_lab_ibl_to_allen --baseline geometry
-	$(CLI) postprocess --run cross_lab_allen_to_ibl --baseline geometry
+	$(CLI) postprocess --run cross_lab_ibl_to_allen --baseline position
+	$(CLI) postprocess --run cross_lab_allen_to_ibl --baseline position
 	$(CLI) postprocess --run cross_lab_ibl_to_allen --baseline bandpower_full
 	$(CLI) postprocess --run cross_lab_allen_to_ibl --baseline bandpower_full
 

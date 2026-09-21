@@ -9,7 +9,7 @@ import pytest
 from lfpaudit.features.amplitude import amplitude_features
 from lfpaudit.features.cache import FeatureCache, index_fingerprint
 from lfpaudit.features.embed import prepare_waveforms
-from lfpaudit.features.geometry import geometry_features
+from lfpaudit.features.geometry import labelled_span_fraction, position_features
 
 
 @pytest.fixture
@@ -29,29 +29,46 @@ def index() -> pd.DataFrame:
     )
 
 
-def test_geometry_shape_and_columns(index):
-    features = geometry_features(index)
-    assert features.shape == (6, 4)
+def test_position_is_depth_and_lateral_offset_only(index):
+    features = position_features(index)
+    assert features.shape == (6, 2)
     np.testing.assert_allclose(features[:, 0], index["depth_um"])
-    np.testing.assert_allclose(features[:, 3], index["channel"])
+    np.testing.assert_allclose(features[:, 1], index["lateral_um"])
 
 
-def test_depth_fraction_is_normalised_within_each_probe(index):
-    """Absolute depth cannot transfer between insertions; relative position at least might."""
-    fraction = geometry_features(index)[:, 2]
-    np.testing.assert_allclose(fraction[:3], [0.0, 0.5, 1.0])
-    # Group b spans a much narrower depth range but still covers the full zero to one.
-    np.testing.assert_allclose(fraction[3:], [0.0, 0.5, 1.0])
+def test_position_does_not_depend_on_which_channels_were_kept(index):
+    """The property the first version lacked: position must not move when labels change scope.
+
+    Kept channels are chosen by histology label, so any feature computed from the set of kept
+    channels on a probe carries the test probe's labels. Dropping a channel from the index must
+    leave every other channel's position features exactly where they were.
+    """
+    full = position_features(index)
+    subset = index.drop(index=[0, 3]).reset_index(drop=True)
+    kept = position_features(subset)
+    np.testing.assert_allclose(kept, np.delete(full, [0, 3], axis=0))
 
 
-def test_geometry_tolerates_a_missing_lateral_column(index):
-    features = geometry_features(index.drop(columns=["lateral_um"]))
+def test_the_leaky_diagnostic_does_depend_on_which_channels_were_kept(index):
+    """Documents the leak: a channel's value moves when the labelled span changes."""
+    full = labelled_span_fraction(index)[:, 0]
+    np.testing.assert_allclose(full[:3], [0.0, 0.5, 1.0])
+    subset = index.drop(index=[0]).reset_index(
+        drop=True
+    )  # the deepest kept channel goes out of scope
+    shifted = labelled_span_fraction(subset)[:, 0]
+    # Channel at depth 120 was at 0.5 of the span; with the span redefined it is now at 0.0.
+    assert shifted[0] == 0.0 and full[1] == 0.5
+
+
+def test_position_tolerates_a_missing_lateral_column(index):
+    features = position_features(index.drop(columns=["lateral_um"]))
     np.testing.assert_allclose(features[:, 1], 0.0)
 
 
-def test_geometry_requires_depth(index):
-    with pytest.raises(ValueError, match="missing columns"):
-        geometry_features(index.drop(columns=["depth_um"]))
+def test_position_requires_depth(index):
+    with pytest.raises(ValueError, match="depth_um"):
+        position_features(index.drop(columns=["depth_um"]))
 
 
 def test_amplitude_features_are_log_scaled(index):

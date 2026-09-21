@@ -389,7 +389,7 @@ def real_smoke(
 # Stage 2: feature extraction, baselines and the lab discriminator.
 # ---------------------------------------------------------------------------------------------
 
-CHEAP_FEATURES = ("bandpower_full", "bandpower_clean", "geometry", "amplitude")
+CHEAP_FEATURES = ("bandpower_full", "bandpower_clean", "position", "amplitude")
 
 
 def _load_corpus(ibl: Path, allen: Path) -> Corpus:
@@ -408,7 +408,7 @@ def _build_feature_table(
     from lfpaudit.features.amplitude import amplitude_features
     from lfpaudit.features.bandpower import band_power
     from lfpaudit.features.cache import FeatureCache
-    from lfpaudit.features.geometry import geometry_features
+    from lfpaudit.features.geometry import labelled_span_fraction, position_features
 
     parts = []
     for store_name in sorted(corpus.stores):
@@ -417,8 +417,11 @@ def _build_feature_table(
         rows = np.arange(len(store.index))
 
         def builder(store=store, rows=rows, name=name, store_name=store_name):
-            if name == "geometry":
-                return geometry_features(store.index)
+            if name == "position":
+                return position_features(store.index)
+            if name == "position_leaky_span":
+                # Diagnostic only: encodes the test probe's own labels. See features/geometry.py.
+                return labelled_span_fraction(store.index)
             if name == "amplitude":
                 return amplitude_features(store.index)
             if name.startswith("bandpower"):
@@ -1616,7 +1619,7 @@ def postprocess(
     baseline: str = typer.Option(
         None,
         help="Instead of a fine-tune run, post-process a Stage 2 baseline's saved predictions "
-        "for the scheme named by --run, e.g. geometry or bandpower_full.",
+        "for the scheme named by --run, e.g. position or bandpower_full.",
     ),
     baselines_dir: Path = typer.Option(Path("results/baselines/predictions")),
 ) -> None:
@@ -1762,7 +1765,7 @@ def fixes_table(
                 "all_target_groups__seed0": "reproduction (Stage 3)",
                 "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
                 "all_target_groups__seed0__whiten": "W: per-probe whitening",
-                "baseline_geometry": "electrode position (control)",
+                "baseline_position": "electrode position (control)",
                 "baseline_bandpower_full": "band power (control)",
             }.get(name, name)
             tag = run if "baseline" not in run else None
@@ -1948,6 +1951,59 @@ def adapt(
         ]
     ).to_csv(Path(out) / f"{run}.csv", index=False)
     typer.secho(f"wrote {out}/{run}.csv", fg=typer.colors.GREEN)
+
+
+@app.command("position-study")
+def position_study(
+    ibl: Path = typer.Option(Path("data/stores/ibl")),
+    allen: Path = typer.Option(Path("data/stores/allen")),
+    cache: Path = typer.Option(Path("data/features")),
+    out: Path = typer.Option(Path("results/position")),
+    view: str = typer.Option("4class"),
+    seed: int = typer.Option(0),
+) -> None:
+    """What the signal adds to honest electrode position, where, and under depth uncertainty."""
+    from lfpaudit.eval.folds import build_schemes
+    from lfpaudit.eval.position_study import (
+        StudyInputs,
+        boundary_distance_um,
+        boundary_table,
+        depth_uncertainty_study,
+        fusion_study,
+    )
+
+    set_seed(seed)
+    corpus = _load_corpus(ibl, allen)
+    tables = {
+        name: _build_feature_table(corpus, name, cache, None, rebuild=False)
+        for name in ("position", "bandpower_full", "w2v2_frozen")
+    }
+    inputs = StudyInputs(
+        index=corpus.index,
+        position=tables["position"],
+        signals={"bandpower_full": tables["bandpower_full"], "w2v2_frozen": tables["w2v2_frozen"]},
+        view=view,
+        seed=seed,
+    )
+    schemes = build_schemes(corpus.index, seed=seed)
+    Path(out).mkdir(parents=True, exist_ok=True)
+
+    typer.echo("fusion: position, each signal, and each signal fused with position")
+    scores, chunks = fusion_study(schemes, inputs)
+    scores.to_csv(Path(out) / "fusion_folds.csv", index=False)
+    boundary_table(chunks, boundary_distance_um(corpus.index)).to_csv(
+        Path(out) / "boundary.csv", index=False
+    )
+
+    typer.echo("depth uncertainty, within lab, where position is strong enough to matter")
+    within = {name: folds for name, folds in schemes.items() if name.startswith("loso")}
+    depth_uncertainty_study(within, inputs, signal="w2v2_frozen").to_csv(
+        Path(out) / "depth_uncertainty.csv", index=False
+    )
+
+    summary = scores.groupby(["scheme", "source"])["balanced_accuracy"].mean().unstack().round(3)
+    typer.echo(summary.to_string())
+    typer.secho(f"wrote {out}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover

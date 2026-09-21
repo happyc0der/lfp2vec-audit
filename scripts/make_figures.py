@@ -20,11 +20,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 #: Order feature sets from least to most information about the signal, so the reader's eye moves
 #: from "what you get for free" to "what the neural data adds".
-FEATURE_ORDER = ["amplitude", "geometry", "bandpower_clean", "bandpower_full", "w2v2_frozen"]
+FEATURE_ORDER = ["amplitude", "position", "bandpower_clean", "bandpower_full", "w2v2_frozen"]
 
 FEATURE_LABELS = {
     "amplitude": "amplitude only",
-    "geometry": "electrode position only",
+    "position": "electrode position only",
     "bandpower_clean": "band power ≤100 Hz",
     "bandpower_full": "band power, full",
     "w2v2_frozen": "frozen audio model",
@@ -39,7 +39,7 @@ SCHEME_LABELS = {
 
 COLOURS = {
     "amplitude": "#b0b0b0",
-    "geometry": "#c1440e",
+    "position": "#c1440e",
     "bandpower_clean": "#7fa8c9",
     "bandpower_full": "#1f4e79",
     "w2v2_frozen": "#4a7c59",
@@ -458,7 +458,7 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
         "all_target_groups__seed0": "reproduction",
         "all_target_groups__seed0__lp100": "harmonised ≤100 Hz",
         "all_target_groups__seed0__whiten": "whitened",
-        "baseline_geometry": "electrode position",
+        "baseline_position": "electrode position",
         "baseline_bandpower_full": "band power",
     }
     colours = {
