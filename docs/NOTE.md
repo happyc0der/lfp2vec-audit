@@ -1,92 +1,91 @@
-# Does LFP2Vec transfer across labs, and can its confidence be trusted?
+# LFP2Vec across labs: a reproduction, a preprocessing fix, and a calibration check
 
-*An independent reproduction and calibration audit on public data. Keshav Rajput, September 2026.
-Code, data manifests, exact splits and every number below: github.com/happyc0der/lfp2vec-audit.*
+*Keshav Rajput, September 2026. Code, data manifests, exact splits and every number below:
+github.com/happyc0der/lfp2vec-audit. Corrected 21 September 2026; see the repository's README.*
 
 ## Question
 
 LFP2Vec (He et al., NeurIPS 2025) fine-tunes an audio model on raw local field potential to
 predict which brain region an electrode sits in, and reports zero-shot transfer between labs. Its
 Broader Impact section states that clinical use "should include calibrated uncertainty
-estimates". No calibration metric appears in the paper, nor any baseline that uses electrode
-position rather than signal. This note measures both, on the two public datasets the paper uses,
-against every control on the same folds.
+estimates". This note reproduces the fine-tuning stage on the two public datasets the paper uses,
+asks why cross-lab transfer failed in the reproduction, fixes it, and measures calibration under
+lab shift, which the paper does not report.
 
 ## Setup
 
-**Data.** Seven IBL insertions from five labs and ten Allen Visual Coding probes from two
-sessions, chunked exactly as the upstream code does: three seconds, one hundred chunks per
-channel, five region labels. 132 600 IBL chunks and 50 200 Allen chunks. Two Allen probe files
-that advertise data and contain only zeros were detected and excluded; IBL contains no CA2
-channels at all.
+**Data.** Seven IBL insertions from five labs and ten Allen Visual Coding probes, chunked as the
+released code does: three seconds, one hundred chunks per channel. 132 600 IBL and 50 200 Allen
+chunks. Two Allen probe files that contain only zeros were excluded; IBL contains no CA2 channels,
+so results use four classes.
 
-**Method.** `facebook/wav2vec2-base` fine-tuned with the paper's stated hyper-parameters. The
-self-supervised continuation stage is not run: reading the upstream code shows it runs per
-dataset and never sees two labs, so it cannot be what makes transfer work, and the paper's own
-ablation shows it adding 0.000 on IBL. No pretrained weights have been released, so published
-numbers are read from figures and carry about ±0.01.
+**Method.** `facebook/wav2vec2-base` fine-tuned with the paper's hyper-parameters. The
+self-supervised continuation is not run; in the released code it runs per dataset and never sees
+two labs. No pretrained weights are available, so published numbers are read from figures (±0.01).
 
-**Evaluation.** Leave-one-session-out within lab, all target probes across labs, permutation
-controls on every fold. Balanced accuracy with chance computed from the classes each test set
-actually contains, and raw accuracy against the majority-class rate where the paper uses that.
+**Evaluation.** Leave-one-session-out within lab; across labs, train on one and score every probe
+of the other. Balanced accuracy with chance computed from the classes each test set contains, and
+raw accuracy over the majority-class rate where the paper uses that. Permuted-label controls on
+every fold sit at chance.
 
-## Three results
+## Results
 
-**1. Within lab, the reproduction agrees with the paper, and electrode position beats it.**
-Across three held-out IBL sessions the fine-tune reaches 0.716 balanced accuracy against the
-paper's 0.68. Four numbers describing where the contact sits, with the voltage discarded, reach
-0.856 on the same sessions. Fine-tuning adds 0.007 over the untrained audio checkpoint.
-Replacing every input with a surrogate that keeps its power spectrum and destroys its waveform
-costs the model 0.008: it is a spectral classifier.
+**1. Within a lab it reproduces.** 0.72 balanced accuracy on held-out IBL sessions against the
+paper's 0.68; with the paper's post-processing, 0.76. Fine-tuning adds 0.007 over the untrained
+audio checkpoint with a linear head, and replacing inputs with surrogates that keep the power
+spectrum and destroy the waveform costs 0.008: on this task the model reads spectral power. It
+beats six-band power by 0.24.
 
-**2. Across labs, the reproduction collapses, and its confidence does not.** Trained on one
-lab and tested on the other, the model predicts a single class for 95% of chunks at 0.997
-confidence, landing below the majority-class rate in both directions. A linear probe recovers
-which lab a chunk came from with area under the curve 0.997 from the fine-tuned embeddings, on
-probes it never saw. Expected calibration error is 0.10 in-lab and 0.56 across labs. A
-temperature fitted in-lab moves the cross-lab error by 0.05; the target lab would have needed a
-temperature four and a half times larger, which requires the labels zero-shot transfer claims not
-to need. No abstention score ranks its own errors. The permuted-label control is four times
-better calibrated than the trained model: it knows nothing and says so.
+**2. Across labs the full-band model collapses, confidently.** It predicts one class for 94% of
+the other lab's chunks at 0.98 confidence, landing below the majority rate in both directions. A
+linear probe recovers the source lab from its embeddings at AUC 0.997 on unseen probes. The source
+is measurable: the datasets' spectra agree below 100 Hz and diverge up to 768-fold above 300 Hz,
+because one pipeline band-passes and the other does not.
 
-**3. One preprocessing choice closes the gap, and does not reach position.** The two datasets'
-spectra agree below 100 Hz and diverge up to 768-fold above 300 Hz, because one pipeline
-band-passes and the other does not. Low-passing every input at 100 Hz, a corner fixed before
-any cross-lab number existed, moves the model from below majority to the published margin in
-both directions, cuts calibration error roughly in half, and drops lab identity to 0.83 and
-0.74. With the paper's own post-processing on top it beats the published margin in one
-direction and ties it in the other, with no labels from the target lab.
+**3. Matching the filters restores transfer.** Low-passing every input at 100 Hz, a corner fixed
+before any cross-lab result existed, with no labels from the target lab:
 
 | raw accuracy minus majority rate | IBL → Allen | Allen → IBL |
 |---|---:|---:|
-| paper, Figure 2e *(figure)* | +0.11 | +0.12 |
-| reproduction, full band | −0.03 | −0.06 |
-| harmonised band + paper's post-processing | **+0.15** | **+0.12** |
-| electrode position, no signal | **+0.27** | **+0.21** |
+| LFP2Vec as published *(Figure 2e)* | +0.11 | +0.12 |
+| fine-tuned, full band | −0.03 | −0.06 |
+| **fine-tuned, filters matched, + paper's post-processing** | **+0.15** | **+0.12** |
+| band power + paper's post-processing | +0.17 | +0.03 |
+| electrode position | −0.24 | 0.00 |
 
-Three levers were ruled out along the way. The paper's post-processing, averaging logits over a
-channel then voting over five neighbours, moves the collapsed model by 0.004. Subtracting each
-probe's mean embedding removes the lab signature almost entirely and leaves transfer at chance:
-the two labs are not the same structure displaced. And whitening each probe's whole spectrum,
-the thorough form of harmonisation, is worse than harmonisation in both directions, because the
-spectral shape a probe shares is part of what says which structure it is in.
+Balanced accuracy goes from 0.24 and 0.26 to 0.46 and 0.37 (0.56 and 0.36 post-processed), the
+best of any method tested; lab identity falls to 0.83 and 0.74. Ruled out along the way: the
+paper's post-processing alone (0.004 on a collapsed model), per-probe embedding centering (removes
+the lab signature, leaves transfer at chance), and whitening each probe's whole spectrum (worse
+than the low-pass in both directions).
 
-## What this says
+**4. Calibration does not survive the shift.** Expected calibration error is 0.10 in lab and 0.56
+across labs. A temperature fitted in lab cuts the former to 0.03 and moves the latter to 0.51; the
+target lab needed a temperature four to seven times larger, which requires the labels zero-shot
+transfer avoids. Matching the filters halves the cross-lab error (0.35) and makes distance from
+the training distribution a working abstention score in both directions.
 
-The reduced method does what the paper reports within a lab, does not beat where the electrode
-is, and transfers across labs only once the labs' filters are matched. What limits it is not
-representation but preprocessing the paper does not control, and its confidence carries no
-information about whether it is in a lab it has seen. The measurement the paper calls for and does
-not make, calibration under shift, is the one that would have revealed this.
+**5. Signal and position are complementary.** Depth along the shank alone reaches 0.77 on IBL,
+where insertions are stereotyped, 0.49 on Allen, and chance across labs. Fused with the signal as a
+product of experts it is at or above both parts. When insertion depth is uncertain, position falls
+(0.75 → 0.63 at ±400 µm on IBL) while the signal stays at 0.68: the signal is the better single
+source beyond about ±280 µm.
 
-**One next experiment.** Fine-tune with the paper's full pipeline on inputs harmonised *before*
-self-supervision, and report calibration error beside accuracy. If the lab-identity score stays
-near 0.8, the residual is physiology; if it falls toward 0.5, the acquisition signature was the
-whole story.
+## What this says, and one next experiment
+
+The reduced method does what the paper reports within a lab. Its cross-lab failure here was
+preprocessing the two datasets do not share, not the representation, and one line of filtering
+recovers the published margin. Confidence is the part that does not transfer, and the measurement
+the paper calls for is the one that shows it.
+
+**Next.** Run the paper's full pipeline, self-supervision included, on inputs harmonised first,
+and report calibration error beside accuracy. If lab identity stays near 0.8 the residual is
+physiology; if it falls toward 0.5, acquisition was the whole story.
 
 ## Limitations
 
-Two of the paper's four datasets are private and untested. Labels are histological estimates
-taken as given. Three within-lab folds and one seed. Every published number quoted is read from
-a bitmap. Much of the code was generated with Claude; every experiment, split and number was
-independently checked, and the development notes say what was.
+Two of the paper's four datasets are private and untested. Labels are histological estimates taken
+as given. Fine-tunes have three within-lab sessions and one seed per configuration so far; more
+are training. Published numbers are read from bitmaps. An earlier version of this note reported a
+position baseline that leaked test labels; it is corrected here. Much of the code was generated
+with Claude; every experiment, split and number was independently checked.

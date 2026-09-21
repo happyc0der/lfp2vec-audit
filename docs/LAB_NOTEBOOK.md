@@ -285,10 +285,14 @@ below the IBL corner.
 
 ## 2026-09-17 (later still) — Stage 2: the baseline floor, and what it says about the task
 
+> *Corrected 2026-09-21: the electrode-position baseline used in this entry leaked test labels. Its position numbers, and every comparison against them, are wrong as written; see the entry of that date and DEVIATIONS D15. The entry is left as it was written.*
+
 Leave-one-session-out over 17 folds, four class views crossed with five feature sets, every
 configuration carrying its own permutation control on the same fold. 1 360 result rows.
 
 ### Result 1: electrode position beats the neural signal
+
+> *Corrected 2026-09-21: the electrode-position baseline used in this entry leaked test labels. Its position numbers, and every comparison against them, are wrong as written; see the entry of that date and DEVIATIONS D15. The entry is left as it was written.*
 
 Mean balanced accuracy, 4-class view, logistic regression:
 
@@ -535,6 +539,8 @@ fold had finished. The cost was a day of an idle laptop.
 
 ### Within-lab, paired on the sessions both actually covered
 
+> *Corrected 2026-09-21: the electrode-position baseline used in this entry leaked test labels. Its position numbers, and every comparison against them, are wrong as written; see the entry of that date and DEVIATIONS D15. The entry is left as it was written.*
+
 Three leave-one-session-out folds, each scoring an insertion that took no part in training or in
 the stopping decision. Compared against the Stage 2 baselines on those same three sessions:
 
@@ -573,6 +579,8 @@ Three folds is too few for a signed-rank test to say anything, so the table repo
 and win counts rather than a p-value that would be theatre at this sample size.
 
 ### Stage 3, assembled
+
+> *Corrected 2026-09-21: the electrode-position baseline used in this entry leaked test labels. Its position numbers, and every comparison against them, are wrong as written; see the entry of that date and DEVIATIONS D15. The entry is left as it was written.*
 
 | | within lab (3 folds) | cross lab (both directions) |
 |---|---:|---:|
@@ -823,6 +831,8 @@ three things (D1, D14):
 - Whether the cross-lab matrix includes post-processing is stated nowhere.
 
 ### Lever P: their post-processing, applied to everything
+
+> *Corrected 2026-09-21: the electrode-position baseline used in this entry leaked test labels. Its position numbers, and every comparison against them, are wrong as written; see the entry of that date and DEVIATIONS D15. The entry is left as it was written.*
 
 Raw accuracy against the target lab's majority rate, the paper's Figure 2e convention:
 
