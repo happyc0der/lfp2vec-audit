@@ -1,0 +1,6 @@
+run,stage,level,raw_accuracy,balanced_accuracy,chance,majority,n
+cross_lab_allen_to_ibl__all_target_groups__seed1__lp100,raw,chunk,0.49745098039215685,0.37185115719130535,0.25,0.3695324283559578,132600
+cross_lab_allen_to_ibl__all_target_groups__seed1__lp100,temporal,chunk,0.4819004524886878,0.3477797690163282,0.25,0.3695324283559578,132600
+cross_lab_allen_to_ibl__all_target_groups__seed1__lp100,temporal,channel,0.4819004524886878,0.3477797690163282,0.25,0.3695324283559578,1326
+cross_lab_allen_to_ibl__all_target_groups__seed1__lp100,spatial,chunk,0.4819004524886878,0.34772500995619277,0.25,0.3695324283559578,132600
+cross_lab_allen_to_ibl__all_target_groups__seed1__lp100,spatial,channel,0.4819004524886878,0.34772500995619277,0.25,0.3695324283559578,1326

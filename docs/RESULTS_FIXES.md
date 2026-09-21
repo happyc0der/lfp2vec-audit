@@ -14,12 +14,12 @@ Published, Figure 2e *(figure)*: raw 0.56 against majority 0.45, **margin +0.11*
 
 | configuration | stage | raw | margin | balanced | chance | cross-lab ECE | lab identity |
 |---|---|---:|---:|---:|---:|---:|---:|
-| fine-tuned, full band (n=1 seeds) | raw | 0.423 | -0.033 | 0.242 | 0.250 | 0.560 | 0.997 |
-| fine-tuned, full band (n=1 seeds) | temporal | 0.422 | -0.034 | 0.237 | 0.250 | 0.560 | 0.997 |
-| fine-tuned, full band (n=1 seeds) | spatial | 0.428 | -0.028 | 0.240 | 0.250 | 0.560 | 0.997 |
-| fine-tuned, filters matched (≤100 Hz) (n=2 seeds) | raw | 0.467 ± 0.043 | +0.011 ± 0.043 | 0.406 ± 0.069 | 0.250 | 0.351 | 0.825 |
-| fine-tuned, filters matched (≤100 Hz) (n=2 seeds) | temporal | 0.519 ± 0.095 | +0.063 ± 0.095 | 0.447 ± 0.115 | 0.250 | 0.351 | 0.825 |
-| fine-tuned, filters matched (≤100 Hz) (n=2 seeds) | spatial | 0.537 ± 0.092 | +0.081 ± 0.092 | 0.463 ± 0.131 | 0.250 | 0.351 | 0.825 |
+| fine-tuned, full band (n=2 seeds) | raw | 0.439 ± 0.023 | -0.016 ± 0.023 | 0.247 ± 0.008 | 0.250 | 0.548 | 0.998 |
+| fine-tuned, full band (n=2 seeds) | temporal | 0.440 ± 0.026 | -0.016 ± 0.026 | 0.246 ± 0.013 | 0.250 | 0.548 | 0.998 |
+| fine-tuned, full band (n=2 seeds) | spatial | 0.442 ± 0.020 | -0.014 ± 0.020 | 0.245 ± 0.007 | 0.250 | 0.548 | 0.998 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | raw | 0.479 ± 0.037 | +0.023 ± 0.037 | 0.406 ± 0.049 | 0.250 | 0.328 | 0.818 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | temporal | 0.525 ± 0.068 | +0.070 ± 0.068 | 0.435 ± 0.084 | 0.250 | 0.328 | 0.818 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | spatial | 0.538 ± 0.065 | +0.082 ± 0.065 | 0.444 ± 0.098 | 0.250 | 0.328 | 0.818 |
 | fine-tuned, per-probe whitening (n=1 seeds) | raw | 0.293 | -0.163 | 0.321 | 0.250 | 0.534 | 0.912 |
 | fine-tuned, per-probe whitening (n=1 seeds) | temporal | 0.281 | -0.175 | 0.324 | 0.250 | 0.534 | 0.912 |
 | fine-tuned, per-probe whitening (n=1 seeds) | spatial | 0.265 | -0.191 | 0.303 | 0.250 | 0.534 | 0.912 |
@@ -46,9 +46,9 @@ Published, Figure 2e *(figure)*: raw 0.49 against majority 0.37, **margin +0.12*
 | fine-tuned, full band (n=1 seeds) | raw | 0.309 | -0.060 | 0.258 | 0.250 | 0.656 | 0.994 |
 | fine-tuned, full band (n=1 seeds) | temporal | 0.307 | -0.063 | 0.256 | 0.250 | 0.656 | 0.994 |
 | fine-tuned, full band (n=1 seeds) | spatial | 0.307 | -0.063 | 0.256 | 0.250 | 0.656 | 0.994 |
-| fine-tuned, filters matched (≤100 Hz) (n=1 seeds) | raw | 0.485 | +0.116 | 0.370 | 0.250 | 0.258 | 0.735 |
-| fine-tuned, filters matched (≤100 Hz) (n=1 seeds) | temporal | 0.495 | +0.125 | 0.361 | 0.250 | 0.258 | 0.735 |
-| fine-tuned, filters matched (≤100 Hz) (n=1 seeds) | spatial | 0.493 | +0.124 | 0.360 | 0.250 | 0.258 | 0.735 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | raw | 0.500 ± 0.015 | +0.130 ± 0.015 | 0.391 ± 0.036 | 0.250 | 0.311 | 0.783 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | temporal | 0.504 ± 0.028 | +0.134 ± 0.028 | 0.368 ± 0.024 | 0.250 | 0.311 | 0.783 |
+| fine-tuned, filters matched (≤100 Hz) (n=3 seeds) | spatial | 0.504 ± 0.029 | +0.134 ± 0.029 | 0.369 ± 0.027 | 0.250 | 0.311 | 0.783 |
 | fine-tuned, per-probe whitening (n=1 seeds) | raw | 0.488 | +0.118 | 0.368 | 0.250 | 0.333 | 0.805 |
 | fine-tuned, per-probe whitening (n=1 seeds) | temporal | 0.465 | +0.096 | 0.335 | 0.250 | 0.333 | 0.805 |
 | fine-tuned, per-probe whitening (n=1 seeds) | spatial | 0.465 | +0.096 | 0.335 | 0.250 | 0.333 | 0.805 |

@@ -102,12 +102,14 @@ existed, and fine-tune again:
 | band power + the paper's post-processing (margin) | +0.17 | +0.03 |
 | electrode position (margin) | −0.24 | 0.00 |
 
-**Seed spread (added 20 September 2026).** The table above is seed 0. A second seed of the
-IBL → Allen model reaches a balanced accuracy of 0.36 and a post-processed margin of +0.02, not
-+0.15: mean +0.08 ± 0.09 over two seeds. Harmonising reliably lifts transfer off the floor (on balanced
-accuracy every harmonised run beats every full-band run), but the claim that it clears the published +0.11 in
-this direction rests on one seed and is not supported yet. Remaining seeds are training;
-[`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md) always shows the current mean and spread.
+**Seed spread (three seeds per direction, 21 September 2026).** The table above is seed 0. Over
+three seeds the harmonised model's post-processed margin is **+0.13 ± 0.03 for Allen → IBL**
+(seeds +0.12, +0.11, +0.17), level with the published +0.12, and **+0.08 ± 0.07 for
+IBL → Allen** (seeds +0.15, +0.02, +0.08), below the published +0.11. Balanced accuracy is
+0.44 ± 0.10 and 0.37 ± 0.03 against 0.25 for the full-band model, whose collapse repeats on a
+second seed (margin −0.01 ± 0.02, lab identity 0.998). So harmonising reliably restores transfer,
+matches the published margin in one direction, and falls short of it on average in the other.
+[`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md) has the current means and spreads.
 
 **No training at all does as well.** The untrained audio checkpoint with a linear head, on the
 same harmonised inputs, reaches margins of +0.09 and +0.13 with the paper's post-processing
