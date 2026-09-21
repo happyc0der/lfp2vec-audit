@@ -1039,7 +1039,9 @@ def finetune_run(
 
 @finetune_app.command("report")
 def finetune_report(
-    results: Path = typer.Option(Path("results/finetune")),
+    results: str = typer.Option(
+        "results/finetune,results/finetune_v2", help="Comma-separated run directories."
+    ),
     baselines: Path = typer.Option(Path("results/baselines")),
     view: str = typer.Option("4class"),
     out: Path = typer.Option(None, help="Write a markdown document here."),
@@ -1050,7 +1052,9 @@ def finetune_report(
     position, which needs no signal at all, and against the frozen checkpoint, which needed no
     training. Both are read from the committed baseline table so the two stages cannot drift.
     """
-    runs = sorted(Path(results).glob("*/*/per_group.csv"))
+    runs = sorted(
+        path for root in str(results).split(",") for path in Path(root).glob("*/*/per_group.csv")
+    )
     if not runs:
         raise typer.BadParameter(f"no runs found under {results}")
 
@@ -1781,31 +1785,53 @@ def fixes_table(
         if table is None:
             lines += ["| *(no results yet)* | | | | | | | |", ""]
             continue
-        part = table[(table["run"].str.startswith(scheme)) & (table["level"] == "chunk")]
-        for run, group in part.groupby("run", sort=False):
-            name = run.replace(f"{scheme}__", "")
-            name = {
-                "all_target_groups__seed0": "reproduction (Stage 3)",
-                "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
-                "all_target_groups__seed0__whiten": "W: per-probe whitening",
-                "baseline_position": "electrode position (control)",
-                "baseline_bandpower_full": "band power (control)",
-            }.get(name, name)
-            tag = run if "baseline" not in run else None
-            for row in group.itertuples():
+        part = table[(table["run"].str.startswith(scheme)) & (table["level"] == "chunk")].copy()
+        # A run tag is <scheme>__all_target_groups__seed<N>[__variant] or <scheme>__baseline_<x>.
+        # Seeds of one configuration are one row: mean, spread across seeds, and how many.
+        tail = part["run"].str.replace(f"{scheme}__", "", regex=False)
+        part["seed"] = tail.str.extract(r"seed(\d+)")[0]
+        part["config"] = tail.str.replace(r"all_target_groups__seed\d+", "finetune", regex=True)
+        labels = {
+            "finetune": "fine-tuned, full band",
+            "finetune__lp100": "fine-tuned, filters matched (≤100 Hz)",
+            "finetune__whiten": "fine-tuned, per-probe whitening",
+            "baseline_position": "electrode position (control)",
+            "baseline_bandpower_full": "band power (control)",
+        }
+        for config in [c for c in labels if c in set(part["config"])]:
+            runs = part[part["config"] == config]
+            tags = sorted(runs["run"].unique())
+            n_seeds = len(tags)
+            is_model = config.startswith("finetune")
+            ece = [cross_lab_ece(t) for t in tags] if is_model else []
+            ece = [float(v) for v in ece if v != "—"]
+            lab = [lab_identity(t) for t in tags] if is_model else []
+            lab = [float(v) for v in lab if v != "—"]
+            for stage in ("raw", "temporal", "spatial"):
+                rows = runs[runs["stage"] == stage]
+                if rows.empty:
+                    continue
+                margin = rows["raw_accuracy"] - rows["majority"]
+
+                def cell(values, signed=False):
+                    fmt = "+.3f" if signed else ".3f"
+                    text = format(values.mean(), fmt)
+                    return text + (f" ± {values.std():.3f}" if len(values) > 1 else "")
+
+                name = labels[config] + (f" (n={n_seeds} seeds)" if is_model else "")
                 lines.append(
-                    f"| {name} | {row.stage} | {row.raw_accuracy:.3f} | "
-                    f"{row.raw_accuracy - row.majority:+.3f} | {row.balanced_accuracy:.3f} | "
-                    f"{row.chance:.3f} | {cross_lab_ece(tag) if tag else '—'} | "
-                    f"{lab_identity(tag) if tag else '—'} |"
+                    f"| {name} | {stage} | {cell(rows['raw_accuracy'])} | {cell(margin, True)} | "
+                    f"{cell(rows['balanced_accuracy'])} | {rows['chance'].mean():.3f} | "
+                    f"{(format(sum(ece) / len(ece), '.3f') if ece else '—')} | "
+                    f"{(format(sum(lab) / len(lab), '.3f') if lab else '—')} |"
                 )
         # Lever C rows come from their own result files, with the controls that qualify them.
         for path in sorted(Path(adapt_dir).glob(f"{scheme}__*.csv")):
             row = pd.read_csv(path).iloc[0]
             source = str(row["run"]).replace(f"{scheme}__", "")
             source = {
-                "all_target_groups__seed0": "reproduction",
-                "all_target_groups__seed0__lp100": "H: harmonised ≤100 Hz",
+                "all_target_groups__seed0": "fine-tuned, full band (seed 0)",
+                "all_target_groups__seed0__lp100": "fine-tuned, filters matched (seed 0)",
             }.get(source, source)
             lines.append(
                 f"| {source} + C: per-probe centering | — | {row['raw_accuracy']:.3f} | "

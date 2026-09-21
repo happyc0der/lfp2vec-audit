@@ -542,8 +542,8 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
     # Whitening is left to the detailed table: it lost to the low-pass in both directions, and
     # this figure opens the README, where it has one thing to say.
     names = {
-        "all_target_groups__seed0": "fine-tuned, full band",
-        "all_target_groups__seed0__lp100": "fine-tuned, filters matched",
+        "finetune": "fine-tuned, full band",
+        "finetune__lp100": "fine-tuned, filters matched",
         "baseline_bandpower_full": "band power",
         "baseline_position": "electrode position",
     }
@@ -558,6 +558,8 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
     chunk["config"] = (
         chunk["run"]
         .str.replace(r"^cross_lab_\w+?_to_\w+?__", "", regex=True)
+        # Seeds of one configuration share a bar: its height is their mean, the dots are each seed.
+        .str.replace(r"all_target_groups__seed\d+", "finetune", regex=True)
         .map(lambda k: names.get(k, k))
     )
     chunk["margin"] = chunk["raw_accuracy"] - chunk["majority"]
@@ -570,11 +572,18 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
         part = chunk[chunk["scheme"] == scheme]
         configs = [c for c in colours if c in set(part["config"])]
         for position, config in enumerate(configs):
-            rows = part[part["config"] == config].set_index("stage")
-            before = float(rows.loc["raw", "margin"])
-            after = float(rows.loc["spatial", "margin"]) if "spatial" in rows.index else before
+            rows = part[part["config"] == config]
+            raw = rows.loc[rows["stage"] == "raw", "margin"]
+            voted = rows.loc[rows["stage"] == "spatial", "margin"]
+            voted = voted if len(voted) else raw
+            before, after = float(raw.mean()), float(voted.mean())
             ax.bar(position - 0.19, before, width=0.36, color=colours[config], alpha=0.45, zorder=2)
             ax.bar(position + 0.19, after, width=0.36, color=colours[config], zorder=2)
+            if len(voted) > 1:
+                for offset, values in ((-0.19, raw), (0.19, voted)):
+                    ax.scatter(
+                        [position + offset] * len(values), values, s=9, color="#111111", zorder=3
+                    )
             if abs(after) < 0.004:  # a bar of zero height still deserves to be seen
                 ax.text(position, 0.006, "0.00", ha="center", fontsize=7.5, color=colours[config])
         label, published = paper[scheme]
@@ -595,7 +604,8 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
         ax.grid(axis="y", alpha=0.25, zorder=0)
     axes[0][0].set_ylabel("raw accuracy minus majority-class rate", fontsize=8.5)
     fig.suptitle(
-        "Cross-lab margin on the paper's own terms (light: before post-processing, solid: after)",
+        "Cross-lab margin on the paper's own terms "
+        "(light: before post-processing, solid: after; dots: individual seeds)",
         fontsize=9.5,
     )
     fig.tight_layout()

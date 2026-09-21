@@ -4,7 +4,9 @@
 
 | run | band | groups | balanced accuracy | chance | ECE | lab identity |
 |---|---|---:|---:|---:|---:|---:|
-| cross_lab_allen_to_ibl__all_target_groups__seed0 | full | 7 | 0.302 +/- 0.063 | 0.298 | 0.655 | 0.994 |
+| cross_lab_allen_to_ibl__all_target_groups__seed0 | full | 14 | 0.302 +/- 0.061 | 0.298 | 0.655 | 0.994 |
+| cross_lab_allen_to_ibl__all_target_groups__seed0__lp100 | <=100 Hz | 7 | 0.422 +/- 0.063 | 0.298 | 0.266 | 0.735 |
+| cross_lab_allen_to_ibl__all_target_groups__seed0__whiten | full | 7 | 0.428 +/- 0.075 | 0.298 | 0.334 | 0.805 |
 
 Stage 2 baselines on the same scheme, for comparison:
 
@@ -20,7 +22,9 @@ Stage 2 baselines on the same scheme, for comparison:
 
 | run | band | groups | balanced accuracy | chance | ECE | lab identity |
 |---|---|---:|---:|---:|---:|---:|
-| cross_lab_ibl_to_allen__all_target_groups__seed0 | full | 10 | 0.340 +/- 0.100 | 0.358 | 0.535 | 0.997 |
+| cross_lab_ibl_to_allen__all_target_groups__seed0 | full | 20 | 0.340 +/- 0.098 | 0.358 | 0.535 | 0.997 |
+| cross_lab_ibl_to_allen__all_target_groups__seed0__lp100 | <=100 Hz | 10 | 0.468 +/- 0.147 | 0.358 | 0.361 | 0.830 |
+| cross_lab_ibl_to_allen__all_target_groups__seed0__whiten | full | 10 | 0.369 +/- 0.149 | 0.358 | 0.524 | 0.912 |
 
 Stage 2 baselines on the same scheme, for comparison:
 
