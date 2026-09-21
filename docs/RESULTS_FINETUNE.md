@@ -10,11 +10,11 @@ Stage 2 baselines on the same scheme, for comparison:
 
 | features | balanced accuracy | ECE |
 |---|---:|---:|
-| geometry | 0.521 | 0.402 |
 | amplitude | 0.401 | 0.190 |
 | bandpower_full | 0.384 | 0.147 |
 | bandpower_clean | 0.364 | 0.177 |
 | w2v2_frozen | 0.304 | 0.631 |
+| position | 0.298 | 0.439 |
 
 ## `cross_lab_ibl_to_allen`
 
@@ -26,11 +26,11 @@ Stage 2 baselines on the same scheme, for comparison:
 
 | features | balanced accuracy | ECE |
 |---|---:|---:|
-| geometry | 0.628 | 0.263 |
 | amplitude | 0.509 | 0.181 |
 | bandpower_full | 0.460 | 0.118 |
 | w2v2_frozen | 0.377 | 0.478 |
 | bandpower_clean | 0.366 | 0.132 |
+| position | 0.233 | 0.668 |
 
 ## `loso_ibl`
 
@@ -44,7 +44,7 @@ Stage 2 baselines on the same scheme, for comparison:
 
 | features | balanced accuracy | ECE |
 |---|---:|---:|
-| geometry | 0.817 | 0.111 |
+| position | 0.773 | 0.135 |
 | w2v2_frozen | 0.697 | 0.124 |
 | amplitude | 0.560 | 0.119 |
 | bandpower_full | 0.441 | 0.081 |
@@ -57,7 +57,7 @@ Stage 2 baselines on the same scheme, for comparison:
 | amplitude | 0.593 | 0.716 | +0.122 | 3/3 |
 | bandpower_clean | 0.429 | 0.716 | +0.287 | 3/3 |
 | bandpower_full | 0.479 | 0.716 | +0.236 | 3/3 |
-| geometry | 0.856 | 0.716 | -0.140 | 1/3 |
+| position | 0.733 | 0.716 | -0.017 | 1/3 |
 | w2v2_frozen | 0.709 | 0.716 | +0.007 | 2/3 |
 
 ## Leakage check

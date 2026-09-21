@@ -152,3 +152,34 @@ def test_paired_comparison_pairs_on_folds(corpus_pieces):
     assert row["folds"] == len(schemes["loso"])
     # Real features should beat features whose rows no longer match their labels.
     assert row["median_difference"] > 0
+
+
+def test_narrow_features_get_a_permutation_distribution_not_a_draw(corpus_pieces):
+    """One random relabelling can hand a one-number model a split that follows the anatomy."""
+    index, features, labels, positions = corpus_pieces
+    fold = leave_one_group_out(index)[0]
+    narrow = features[:, :1]
+    rows = run_fold(
+        fold, narrow, labels, positions, "one_number", "logreg", "5class", permutation_draws=8
+    )
+    control = rows[1]
+    assert control["control"] == "permuted"
+    assert control["draws"] == 8
+    assert control["balanced_accuracy_max_draw"] >= control["balanced_accuracy"]
+    assert rows[0]["draws"] == 1
+
+
+def test_sweep_uses_many_draws_only_for_narrow_feature_sets(corpus_pieces):
+    index, features, labels, positions = corpus_pieces
+    schemes = {"loso": leave_one_group_out(index)}
+    spec = ExperimentSpec(
+        feature_sets=["wide", "narrow"],
+        models=["logreg"],
+        views=["5class"],
+        narrow_permutation_draws=5,
+    )
+    tables = {"wide": features, "narrow": features[:, :2]}
+    table = run_sweep(schemes, tables, labels, positions, spec, verbose=False)
+    draws = table[table["control"] == "permuted"].groupby("features")["draws"].max()
+    assert draws["narrow"] == 5
+    assert draws["wide"] == 1

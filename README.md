@@ -1,461 +1,243 @@
-# lfp2vec-audit
+# LFP2Vec on public data: a reproduction, a preprocessing fix, and two missing measurements
 
 [![ci](https://github.com/happyc0der/lfp2vec-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/happyc0der/lfp2vec-audit/actions/workflows/ci.yml)
 
-**Are LFP2Vec-style anatomical predictions calibrated and interpretable under cross-lab shift, and how much of their accuracy is recoverable by trivial, interpretable baselines?**
+[LFP2Vec](https://papers.nips.cc/paper_files/paper/2025/hash/b408053531ce6fd66a96bc3a86527bb9-Abstract-Conference.html)
+(He, Patel, Li, Maslarova, Vöröslakos, Ramanathan, Hung, Buzsáki & Varol, NeurIPS 2025) adapts the
+audio model `wav2vec2` to raw local field potential and fine-tunes it to say which brain region an
+electrode sits in, from three seconds of one channel. This repository reproduces its fine-tuning
+stage on the two public datasets the paper uses, IBL and Allen Neuropixels, and reports three
+things:
 
-> **Correction, 21 September 2026.** The electrode-position baseline reported in this README included a feature that leaks test labels: depth rescaled to the span of channels carrying one of the five target labels, a span set by the test probe's own histology. On its own that feature scores 0.81 and 0.76 across labs; honest position, absolute depth along the shank, scores 0.09 and 0.30, at or below chance. Every statement below that position beats the signal-based models **across labs** is therefore wrong, and the within-lab position numbers are overstated (0.77 rather than 0.82 on IBL, 0.49 rather than 0.82 on Allen). The feature is fixed in `lfpaudit/features/geometry.py`; tables, figures and this README are being regenerated.
->
-> **Status: Stage 4 — calibration, abstention and ablation.** The reduced LFP2Vec method is trained, scored against every baseline on the same folds, and analysed for whether its confidence can be repaired, whether it can refuse, and what it listens to. What remains is the two-page note. Every claim below that is not yet measured is marked *planned*.
+1. **Within a lab it reproduces.** 0.72 balanced accuracy on held-out IBL sessions against the
+   paper's 0.68, from a laptop, without the self-supervised stage.
+2. **Across labs the reproduction fails, and the cause is preprocessing, not representation.** The
+   two datasets are filtered differently above 100 Hz. Low-passing every input at 100 Hz takes
+   cross-lab transfer from chance to the level the paper reports, in both directions, using no
+   labels from the target lab.
+3. **Two measurements the paper does not make change how its results read**: calibration under
+   lab shift, which its Broader Impact section calls for, and an electrode-position control.
 
-## What LFP2Vec is
+![cross-lab margins](docs/figures/fixes.png)
 
-[LFP2Vec](https://papers.nips.cc/paper_files/paper/2025/hash/b408053531ce6fd66a96bc3a86527bb9-Abstract-Conference.html) (He, Patel, Li, Maslarova, Vöröslakos, Ramanathan, Hung, Buzsáki & Varol, NeurIPS 2025) adapts the audio model `facebook/wav2vec2-base` to raw local field potential, continues self-supervised training on unlabelled LFP, and fine-tunes it to predict which brain region an electrode sits in from a 3-second single-channel recording. The paper reports zero-shot transfer across labs and probe geometries. Upstream code: [`tianxiao18/lfp2vec`](https://github.com/tianxiao18/lfp2vec).
+*Cross-lab transfer on the paper's own metric: raw accuracy minus the target lab's majority-class
+rate. Light bars before the paper's post-processing, solid after; the dashed line is the published
+margin, read from the paper's Figure 2e. One seed; two more per configuration are training and
+this figure regenerates from saved results.*
 
-## Why this repository exists
+*Corrected 21 September 2026: an earlier version's position baseline leaked test labels. See
+[Corrections](#corrections).*
 
-The LFP2Vec paper's own Broader Impact section states that clinical deployment "should include calibrated uncertainty estimates" — but no calibration metric is reported anywhere in the paper or supplement. Separately, [LFP-LOC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13199280/) (Perna et al., *Frontiers in Neuroscience*, 2026) criticises LFP2Vec as lacking interpretability and requiring training, and proposes training-free band-power features instead — but offers no head-to-head comparison on shared data.
+## Results
 
-This repository measures both gaps on public data:
+Every number is balanced accuracy on sessions or probes the model never saw, four-class view
+(CA1, CA3, DG, visual cortex), unless stated. Chance differs by column because balanced accuracy
+averages over the classes a test set actually contains. Every configuration has a permuted-label
+control on the same fold, and all sit at chance.
 
-1. **Calibration under shift.** Does confidence stay meaningful when the test recording comes from a different lab?
-2. **The interpretable-baseline floor.** How much of the accuracy is recoverable from six numbers per chunk (δ θ α β γ ripple relative power), from electrode depth alone, or from a frozen audio encoder with no LFP training at all?
-3. **What the model listens to.** Which frequency bands actually drive predictions, and is that answer stable across seeds and sessions?
+### 1. Within a lab
 
-## What this repository does *not* claim
-
-- It is **not** a full reproduction. The self-supervised continuation stage is out of scope on laptop-class compute; experiments start from the audio checkpoint and fine-tune. See [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md).
-- It does **not** evaluate on the Neuronexus mouse or macaque datasets, which are private to the original authors.
-- A difference measured here is a difference **against this reproduction**, not a refutation of the published model. No pretrained LFP2Vec weights have been released, so exact published numbers cannot be checked.
-- It does not claim LFP-based anatomical localisation is solved, unsolved, or anything in between.
-
-## What is in the data so far
-
-| store | chunks | channels | sources |
-|---|---:|---:|---|
-| IBL | 132,600 | 1,326 | 7 insertions, 5 labs |
-| Allen | 50,200 | 502 | 10 probes, 2 sessions |
-
-Full per-probe breakdown in [`docs/DATA_CARD.md`](docs/DATA_CARD.md); sampled chunks and
-per-region spectra in [`docs/figures/`](docs/figures).
-
-Two things worth knowing before any model is trained.
-
-**The IBL recordings contain no CA2 channels at all.** Every CA2 chunk in the corpus comes from
-Allen, and only four channels there. Any model trained on IBL therefore cannot predict CA2, and
-scores zero recall on it by construction rather than by failure.
-
-**The two datasets are filtered differently, and it is measurable.** Their mean spectra agree
-below 100 Hz and diverge by up to 768-fold above 300 Hz, because the IBL pipeline band-passes at
-0.5–300 Hz and the Allen cache does not. Relative power in the ripple band, the clearest
-hippocampal marker, is 2.8 times higher in Allen. A classifier could separate the two labs on
-that alone, without learning any anatomy. This is documented rather than corrected, and from
-Stage 2 onward every cross-lab result is reported both on the full band and on a common band
-below the IBL corner. See [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D11.
-
-## Baseline results
-
-Leave-one-session-out across 17 folds, four-class view, logistic regression, mean balanced
-accuracy. Every configuration carries a permutation control fitted on the same fold, and all of
-them sit at their fold's chance level. Full tables in
-[`docs/RESULTS_BASELINES.md`](docs/RESULTS_BASELINES.md).
-
-| features | within IBL | within Allen | IBL → Allen | Allen → IBL |
-|---|---:|---:|---:|---:|
-| *chance* | *0.298* | *0.358* | *0.358* | *0.298* |
-| amplitude only | 0.560 | 0.526 | 0.509 | 0.401 |
-| **electrode position only** | **0.817** | **0.822** | **0.628** | **0.521** |
-| band power, ≤100 Hz | 0.399 | 0.480 | 0.366 | 0.364 |
-| band power, full | 0.441 | 0.590 | 0.460 | 0.384 |
-| frozen audio model | 0.697 | 0.701 | 0.377 | 0.304 |
-
-![baselines](docs/figures/baselines.png)
-
-**Electrode position beats the neural signal.** Four numbers describing where a contact sits,
-with the voltage discarded entirely, reach 0.82 where six band powers reach 0.44. Probes are
-lowered along stereotyped trajectories and structures come in a predictable order along a shank,
-so much of what "decoding region from LFP" measures here is available without the LFP. This is
-the control the original paper does not report.
-
-**The frozen audio model is the best signal-based feature within lab, and does not transfer.**
-`facebook/wav2vec2-base`, run forward with nothing fine-tuned, reaches 0.70 and beats band power
-on every IBL fold (Wilcoxon, 7/7, p = 0.016). So the audio prior does carry region information a
-spectral summary does not. Across labs it scores 0.377 against a chance of 0.358.
-
-**Why it collapses, and the calibration failure that comes with it.** A linear model identifies
-which dataset a chunk came from with perfect accuracy from those same embeddings, on probes it
-never saw:
-
-| features | lab identification, area under curve |
-|---|---:|
-| band power, ≤100 Hz | 0.729 |
-| band power, full | 0.837 |
-| frozen audio embeddings | **1.000** |
-
-The representation that makes the audio model the best within-lab feature is dominated by which
-rig produced the recording. Meanwhile its expected calibration error rises from 0.124 within lab
-to **0.478 and 0.631** across labs. A model at chance accuracy reporting high confidence is worse
-than one that is merely wrong, and this is the failure the paper's own Broader Impact section
-anticipates without measuring.
-
-## The fine-tune
-
-`facebook/wav2vec2-base` fine-tuned on IBL, 23,900 class-balanced chunks, nine epochs, scored on
-all ten Allen probes. Full tables in [`docs/RESULTS_FINETUNE.md`](docs/RESULTS_FINETUNE.md).
-
-| measure | value | reference |
-|---|---:|---|
-| within-lab validation* | **0.801** | electrode position alone reaches 0.817 |
-| cross-lab, mean of 10 probes | **0.340** | chance on those probes is 0.358 |
-| calibration error, cross-lab | **0.556** | the frozen checkpoint scored 0.478 |
-| negative log-likelihood, cross-lab | **4.76** | a uniform predictor scores 1.39 |
-| lab identity after fine-tuning | **0.997** | before fine-tuning it was 1.000 |
-
-\* That figure is a **validation** score on a group also used for early stopping. The clean
-within-lab comparison is the table further down.
-
-Not one of the ten target probes exceeded its own chance level. Presented with the other lab's recordings the model predicts visual cortex for
-**93.9%** of chunks at **0.98** mean confidence, where the true share is 45%. That is not
-degradation; it is a decision boundary fitted in one region of representation space being handed
-inputs that all fall in another.
-
-**The reason is measured, not inferred.** Nine epochs of supervised training on region labels
-moved the lab-identity score from 1.000 to 0.997. Whatever encodes which rig produced a recording
-survives fine-tuning intact, and while it does, a boundary learned in one lab cannot mean anything
-in the other.
-
-Cross-lab, the fine-tune scores below every baseline in the table above, including the same
-checkpoint with nothing trained at all.
-
-![finetune](docs/figures/finetune.png)
-
-### Within lab, paired on the same three held-out sessions
-
-Each session took no part in training or in the stopping decision.
-
-| method | balanced accuracy | vs fine-tune | fine-tune wins |
-|---|---:|---:|---:|
-| **electrode position** | **0.856** | −0.140 | 1 of 3 |
-| fine-tuned wav2vec2 | 0.716 | — | — |
-| frozen audio model | 0.709 | +0.007 | 2 of 3 |
-| amplitude only | 0.593 | +0.122 | 3 of 3 |
-| band power, full | 0.479 | +0.236 | 3 of 3 |
-
-**Fine-tuning clearly beats hand-designed features**, by 0.24 over band power and 0.12 over
-amplitude, winning every fold against both. The audio prior plus supervision does something a
-six-number spectral summary cannot, which is a point against the interpretability argument made
-by LFP-LOC.
-
-**Fine-tuning barely beats doing nothing.** Against the same checkpoint with no training at all
-the difference is **+0.007**, on two folds of three. Nine epochs on twenty-four thousand chunks,
-two and a half hours per fold, buys almost nothing over running the untouched audio model forward
-into a linear classifier.
-
-**Electrode position is ahead of all of it** by 0.140, winning two folds of three.
-
-Three folds is too few for a signed-rank test to mean anything, so this reports differences and
-win counts rather than a p-value that would be theatre at that sample size.
-
-### The leakage control, and what it shows by accident
-
-Two epochs with the training labels shuffled: training loss 1.376 against the 1.386 entropy of
-four equal classes, validation and test both exactly at chance. The splits are sound.
-
-It also produced the sharpest single comparison in the project. The permuted model's calibration
-error is **0.118**; the real model's, across labs, is **0.535**. The permuted model knows nothing
-and says so. The trained model is equally wrong across labs and reports 0.98 confidence. The
-accuracy is the same. Only one of them is honest about it.
-
-**What this does not show.** This is the reduced method: audio initialisation plus supervised
-fine-tuning, without the self-supervised continuation on unlabelled LFP that the published work
-runs (see [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D1). That stage is the most plausible
-candidate for removing acquisition structure, precisely because it trains on pooled unlabelled
-data rather than on one lab's labels, and nothing here tests it. No pretrained weights have been
-released, so the published numbers cannot be checked directly. These are results for what can be
-reproduced on public data with laptop-class compute, with every control on the same folds.
-
-## How this compares to the paper
-
-### What can be compared, and what cannot
-
-The paper contains **no results tables**. Every headline number lives inside a rasterised figure,
-so the only performance figures available as text are a silhouette score of 0.576 ± 0.026 and a
-linear-probing accuracy of 0.921 ± 0.004, both on Allen sessions only. Numbers marked *(figure)*
-below were read off bar heights and confusion matrices in the published bitmaps and carry perhaps
-±0.01; they are the authors' results, not mine, and any error in reading them is mine.
-
-Two conventions have to be matched or the comparison is meaningless:
-
-- **Their reported chance is the majority-class rate, not one over the number of classes.** For
-  Allen that is 0.45, not 0.20.
-- **Their within-session figure reports balanced accuracy; their cross-lab matrix reports raw
-  accuracy.** The same model and data give 0.83 raw and about 0.645 balanced on Allen. Quoting one
-  against the other would overstate by nearly twenty points.
-
-Everything below is stated on the paper's own terms.
-
-### Within lab, this reproduces
-
-Balanced accuracy across held-out sessions, the paper's Figure 2a metric:
-
-| | LFP2Vec, published *(figure)* | this reproduction |
+| | within IBL | within Allen |
 |---|---:|---:|
-| IBL | 0.68 | **0.716** (3 folds: 0.819, 0.631, 0.697) |
+| *chance* | *0.30* | *0.36* |
+| band power, six bands | 0.44 | 0.59 |
+| electrode position | 0.77 | 0.49 |
+| audio checkpoint, nothing trained, linear head | 0.70 | 0.70 |
+| **fine-tuned (this reproduction)** | **0.72** (3 sessions) | not run |
+| fine-tuned + the paper's post-processing | 0.76 | |
+| LFP2Vec as published *(read from Figure 2a)* | 0.68 | 0.65 |
 
-Within a lab the reduced method lands where the published one does, without the self-supervised
-stage. Worth noting from the same figure: on IBL, LFP2Vec is **not** the best model in the paper's
-own results, with BrainBERT ahead on both balanced accuracy (0.70) and macro F1 (0.585 against
-0.565) *(figure)*. The text reports this only as "fewer performance gains are observed on IBL."
+- **The reduced method lands where the paper does**, and the paper's post-processing adds the
+  0.05 it reports adding.
+- **Fine-tuning adds 0.007 over the untrained audio checkpoint** on the same sessions. Replacing
+  every input with a surrogate that keeps its power spectrum and destroys its waveform costs the
+  fine-tuned model 0.008. On this task the model reads spectral power and little else, which is
+  consistent with the paper's own ablation, where audio initialisation carries most of the benefit.
+- **The signal clearly beats six-band power** (+0.24 on IBL), so it is not reducible to the
+  hand-designed summary that [LFP-LOC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13199280/) proposes
+  in its place.
+- **Electrode position is a serious competitor only where insertions are stereotyped.** On IBL,
+  where all seven insertions target the same structures, depth along the shank alone reaches 0.77
+  and ties the fine-tune on the same sessions (0.73 against 0.72). On Allen it reaches 0.49 and the
+  signal is far ahead. See result 5.
 
-### Across labs, it does not
+Details: [`docs/RESULTS_BASELINES.md`](docs/RESULTS_BASELINES.md),
+[`docs/RESULTS_FINETUNE.md`](docs/RESULTS_FINETUNE.md).
 
-Raw accuracy against the target lab's majority-class rate, the paper's Figure 2e convention:
+### 2. Across labs, full band
 
-| direction | LFP2Vec, published *(figure)* | majority | margin | this reproduction | majority | margin |
-|---|---:|---:|---:|---:|---:|---:|
-| IBL → Allen | 0.56 | 0.45 | **+0.11** | 0.420 | 0.452 | **−0.032** |
-| Allen → IBL | 0.49 | 0.37 | **+0.12** | 0.309 | 0.370 | **−0.060** |
+Train on one lab, test on every probe of the other:
 
-The published model clears the majority-class rate by about eleven points in both directions. This
-reproduction falls below it in both. That is the substantive disagreement, and the honest reading
-is that **something the published method does and this one does not is worth roughly 0.15 of
-cross-lab accuracy.** The candidates, in the order I would test them:
-
-1. **The self-supervised stage**, skipped here (D1). It trains on pooled unlabelled recordings,
-   which is exactly the kind of objective that could suppress the acquisition structure Stage 4
-   found surviving supervised fine-tuning at a lab-identity score of 0.994.
-2. **The post-processing**, which the paper applies as temporal smoothing plus a majority vote over
-   each channel's five nearest neighbours. That second step is a spatial prior, and this repository
-   measures what such a prior is worth on its own: electrode position alone reaches 0.856 within
-   lab and 0.628 across labs. Whether Figure 2e includes post-processing is not stated.
-3. **Data scale.** The paper reports no session, animal, or recording count for Allen or IBL, only
-   percentages, so this cannot be checked.
-
-### Where the paper leaves gaps this fills
-
-Verified absent from the paper and supplement, by full-text search:
-
-- **No calibration metric of any kind** — no expected calibration error, reliability diagram,
-  confidence measure, uncertainty estimate, or abstention analysis — while its Broader Impact
-  section states that clinical deployment "should include calibrated uncertainty estimates". This
-  repository measures that: the error is 0.535 and 0.655 across labs, and a temperature fitted
-  in-lab does not repair it.
-- **No position, depth, channel-index, or geometry control**, and no shuffled-label control. All
-  three published baselines are learned encoders on the same signal. Here, electrode position alone
-  beats the fine-tuned model within lab.
-- **No significance test anywhere**, and error bars are defined only in the NeurIPS checklist,
-  which claims the text describes them. It does not.
-- **Chance never appears as a number in prose.** It is a figure annotation, and it is the
-  majority-class rate.
-
-### What this comparison is not
-
-This is a comparison against a reduced reproduction: audio initialisation plus supervised
-fine-tuning, on two of the four datasets, with laptop-class compute and no released weights to
-check against. A gap measured here is a gap against that, not a refutation of the published model.
-The most useful thing it establishes is *where* to look: the difference is entirely cross-lab,
-which is precisely where the skipped stage and the spatial post-processing would act.
-
-## Closing the gap
-
-The comparison above leaves one objection standing: the reduced method transfers worse than the
-published one, so the audit might be of a strawman. Stage 5 closes that gap, lever by lever, using
-**no labels from the target lab**, with every lever applied to every model including electrode
-position. Full tables in [`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md).
-
-![fixes](docs/figures/fixes.png)
-
-Raw accuracy minus the target lab's majority-class rate, the paper's own metric and chance:
-
-| configuration | IBL → Allen | Allen → IBL |
+| | IBL → Allen | Allen → IBL |
 |---|---:|---:|
-| paper, Figure 2e *(figure)* | +0.11 | +0.12 |
-| reproduction, full band | −0.03 | −0.06 |
-| + their post-processing | −0.03 | −0.06 |
-| + per-probe embedding centering | −0.32 | — |
-| **harmonised band ≤100 Hz** | +0.04 | **+0.12** |
-| **harmonised + their post-processing** | **+0.15** | **+0.12** |
-| per-probe spectral whitening | −0.16 | +0.12 |
-| band power + their post-processing | +0.17 | +0.03 |
-| **electrode position** | **+0.27** | **+0.21** |
+| balanced accuracy (chance 0.25) | 0.24 | 0.26 |
+| raw accuracy minus majority rate | −0.03 | −0.06 |
+| LFP2Vec as published *(Figure 2e)* | +0.11 | +0.12 |
+| expected calibration error, in lab → across labs | 0.10 → 0.56 | 0.11 → 0.66 |
+| source lab recoverable from the embeddings (AUC) | 0.997 | 0.994 |
 
-**What the paper's own post-processing is worth.** Read from its notebook rather than its text,
-it averages logits over every chunk of a channel, collapses to one label per channel, and votes
-over five neighbouring channels. Applied to the collapsed full-band model it changes the margin
-by 0.004, because averaging chunks that all say one class has nothing to change. Applied to band
-power it adds 0.10 in one direction and clears the paper's margin. It is the identity on
-electrode position, which is spatially smooth by construction.
+The model predicts visual cortex for 94% of the other lab's chunks at a mean confidence of 0.98.
+A linear probe recovers which lab a chunk came from almost perfectly from the fine-tuned
+embeddings, on probes it never saw, exactly as it does from the untrained checkpoint's (1.000):
+nine epochs of supervised training do not touch the acquisition signature.
 
-**What the missing self-supervised stage is worth.** Nothing here. Its code runs per dataset and
-never sees two labs; the paper's own ablation shows it adding 0.000 on IBL within lab. It is not
-the missing piece (see [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D1).
+The signature has a measurable source. The two datasets' mean spectra agree below 100 Hz and
+diverge by up to 768-fold above 300 Hz, because the IBL pipeline band-passes at 0.5–300 Hz and
+the Allen release does not ([`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D11). This was recorded
+while building the datasets, before any model was trained.
 
-**What centering the embeddings is worth.** It removes the lab signature almost entirely, from
-0.997 to 0.526, and leaves cross-lab decoding at chance. The two labs are not the same structure
-displaced. Both controls pass: an uncentred head reproduces the run's own number, and centred
-in-lab decoding holds at 0.647.
+### 3. Matching the filters restores transfer
 
-**What one preprocessing choice is worth.** Low-passing every input at 100 Hz, the corner chosen
-in Stage 2 before any cross-lab number existed, moves the reproduction from below the majority
-rate to the published margin in both directions. Balanced accuracy goes from 0.242 and 0.258 to
-**0.455 and 0.370** against chance 0.250. Calibration error falls from 0.556 and 0.656 to 0.348
-and 0.258. Lab identity falls from 0.997 and 0.994 to 0.830 and 0.735. With their post-processing
-on top, the result **beats the published margin in one direction and ties it in the other**,
-within the ±0.01 that reading a bar chart allows.
+Low-pass every input at 100 Hz, a corner chosen from the spectra before any cross-lab result
+existed, and fine-tune again:
 
-The cross-lab failure of the reduced method was, substantially, the filtering difference recorded
-in Stage 1 before any model was trained. A model trained on frequencies one lab keeps and the
-other removes learns content that does not exist at test time.
+| | IBL → Allen | Allen → IBL |
+|---|---:|---:|
+| balanced accuracy, full band → harmonised | 0.24 → **0.46** | 0.26 → **0.37** |
+| with the paper's post-processing | 0.56 | 0.36 |
+| raw accuracy minus majority, harmonised + post-processing | **+0.15** | **+0.12** |
+| LFP2Vec as published *(Figure 2e)* | +0.11 | +0.12 |
+| expected calibration error across labs | 0.56 → 0.35 | 0.66 → 0.26 |
+| source lab recoverable from the embeddings | 0.997 → 0.83 | 0.994 → 0.74 |
+| band power + the paper's post-processing (margin) | +0.17 | +0.03 |
+| electrode position (margin) | −0.24 | 0.00 |
 
-**What whitening is worth.** Flattening each probe's whole spectrum, the more thorough form of
-the same idea, is worse than harmonisation in both directions and worse than doing nothing in
-one. It erases the spectral shape a whole probe shares, and on a hippocampal probe that shape is
-part of what says hippocampus. Clipping only the band where the pipelines disagree keeps it.
+One preprocessing choice moves the reproduction from below the majority rate to the published
+margin in both directions, halves the calibration error, and removes much of the lab signature.
+On balanced accuracy the harmonised model is the best method tested in both directions. On the
+paper's raw-margin metric, six-band power with the paper's smoothing is slightly ahead in one
+direction (+0.17 against +0.15) and far behind in the other.
 
-**What it does not close.** Electrode position is still ahead by 0.09 to 0.13 in both directions.
-Harmonisation gets a 95-million-parameter model to where the paper reports it; it does not get it
-past four numbers describing where the contact sits. And the calibration remedy still only half
-works: with the harmonised model, a temperature fitted in-lab reaches cross-lab partly in one
-direction (0.352 → 0.238, oracle 0.044) and not at all in the other.
+Four alternatives were tested and ruled out, each with its control:
 
-One thing did reverse. With the full-band model, no abstention score could rank its own errors.
-With the harmonised model, distance from the training distribution ranks them in both directions:
-keeping the fifth of predictions it trusts most gives 0.305 and 0.360 error against 0.506 and
-0.515 for everything. The model is no longer collapsed onto one class, so its embeddings vary
-with the input again, and a refusal built on them works.
+- **The paper's post-processing alone** moves the collapsed full-band model by 0.004. Averaging
+  chunks that all say one class has nothing to change.
+- **The self-supervised stage** is run per dataset in the released code and never sees two labs,
+  so it cannot be what aligns them; the paper's Figure 5 shows it adding nothing on IBL within lab.
+- **Subtracting each probe's mean embedding** removes the lab signature (0.997 → 0.53) and leaves
+  transfer at chance. The labs are not the same structure displaced.
+- **Whitening each probe's whole spectrum**, the thorough form of the same idea, is worse than
+  the low-pass in both directions. The spectral shape a probe shares is part of what says which
+  structure it is in.
 
-## Calibration, abstention and ablation
+Details: [`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md).
 
-Full tables in [`docs/RESULTS_CALIBRATION.md`](docs/RESULTS_CALIBRATION.md), regenerated from the
-saved results by `lfpaudit stage4-report`.
+### 4. Calibration under shift
 
-### The standard remedy does not reach the failure
+The paper's Broader Impact section says clinical use "should include calibrated uncertainty
+estimates". The standard remedy is a temperature fitted on held-out data from the training lab.
 
-One temperature fitted on in-lab validation logits, then applied unchanged across labs:
+![calibration](docs/figures/calibration.png)
 
-| direction | in-lab ECE | cross-lab ECE | temperature fitted | temperature actually needed |
+| | fitted in lab | ECE in lab | ECE across labs, same temperature | temperature the target needed |
 |---|---:|---:|---:|---:|
-| IBL → Allen | 0.100 → **0.025** | 0.560 → **0.510** | 1.84 | 8.26 |
-| Allen → IBL | 0.114 → **0.054** | 0.656 → **0.580** | 1.72 | 11.79 |
+| full band, IBL → Allen | 1.84 | 0.10 → 0.03 | 0.56 → 0.51 | 8.26 |
+| full band, Allen → IBL | 1.72 | 0.11 → 0.05 | 0.66 → 0.58 | 11.79 |
+| harmonised, IBL → Allen | 1.73 | 0.14 → 0.03 | 0.35 → 0.24 | 3.66 |
 
-In-lab the fix works and calibration error falls several-fold. Across labs the same scalar moves
-it by 0.05 and leaves the model asserting 0.93 confidence at 42% accuracy. The target lab needed a
-temperature four to seven times larger, and that number cannot be found without labelled data from
-the target lab, which is precisely what zero-shot transfer claims not to need.
+In lab the remedy works. Across labs the same scalar barely moves the full-band model, and the
+temperature the target lab needed is four to seven times larger, which cannot be found without
+the labelled target data that zero-shot transfer is meant to avoid. Harmonising the filters
+halves that gap but does not close it.
 
-So the remedy the paper's own Broader Impact section calls for exists, is a single number, and is
-out of reach of the setting its headline claim describes.
+Abstention follows the same pattern. With the full-band model no uncertainty score ranks its own
+errors, and the model is *more* confident on the unseen lab than on held-out data from its own.
+With the harmonised model, distance from the training distribution in embedding space ranks
+errors in both directions: keeping the fifth of predictions it trusts most gives 0.31 and 0.36
+error against 0.51 and 0.52 overall.
 
-### The model cannot refuse, and the unsupervised alternative is unreliable
+Details: [`docs/RESULTS_CALIBRATION.md`](docs/RESULTS_CALIBRATION.md).
 
-| score | AURC, IBL → Allen | separation, IBL → Allen | separation, Allen → IBL |
-|---|---:|---:|---:|
-| confidence | 0.618 | 0.315 | 0.400 |
-| entropy | 0.625 | 0.327 | 0.398 |
-| distance from training data | 0.651 | **0.955** | **0.495** |
+### 5. What the signal adds to knowing where the electrode is
 
-Every risk–coverage area sits above the error at full coverage (0.580), so discarding the most
-uncertain predictions leaves a *worse* set than keeping everything.
+Position is only useful if it is known. Here it is absolute depth along the shank plus lateral
+offset, both given by the probe's geometry.
 
-Confidence separates in-lab from cross-lab inputs at below 0.5, meaning the model is **more**
-confident on recordings from a lab it has never seen than on held-out data from its own.
+![depth uncertainty](docs/figures/depth_uncertainty.png)
 
-Distance from the training distribution detects the shift almost perfectly in one direction and
-not at all in the other, while a supervised probe separates the labs at 0.994 in both. The
-structure is there either way; whether an unsupervised distance can reach it is what changes, so a
-distance-based gate is not a dependable safeguard here.
+- **Signal and position are complementary.** Fused as a product of experts, with nothing fitted
+  on top, the pair reaches 0.78 on IBL and 0.72 on Allen, at or above both parts. Where insertions
+  are stereotyped position leads and the signal adds a little; where they are not, the reverse.
+- **Depth uncertainty decides which to trust.** Shift the held-out probe along its shank by a
+  random offset, with the position model trained under the same uncertainty. On IBL position falls
+  from 0.75 to 0.63 at ±400 µm and 0.47 at ±800 µm while the signal stays at 0.68: the signal is
+  the better single source beyond roughly ±280 µm, and the fusion is above both at every level.
+- **Across labs position carries nothing** (0.23 and 0.30, at or below chance). Trajectories
+  differ between labs, which is exactly the setting signal-based localisation is for.
+- **A hypothesis that failed:** the signal does not rescue position near anatomical boundaries.
+  Every source degrades together there, where histological labels are also least certain.
 
-### It is a power spectrum with extra steps
+Details: [`docs/RESULTS_POSITION.md`](docs/RESULTS_POSITION.md).
 
-![ablations](docs/figures/ablations.png)
+## Scope and limits
 
-**Phase randomisation costs nothing.** Replacing every chunk with a surrogate that keeps its power
-spectrum and destroys its waveform changes the fine-tuned model by 0.008 and the frozen model by
-0.024. Band power must be unaffected and is, which is that invariant holding on real data. A
-95-million-parameter transformer over raw voltage, handed inputs with no temporal structure left,
-performs the same. That is also why fine-tuning adds only 0.007 over an untrained checkpoint:
-there is little else in the representation for supervision to sharpen.
+- **This is the reduced method**: audio initialisation plus supervised fine-tuning, without the
+  self-supervised continuation. No pretrained LFP2Vec weights have been released, so published
+  numbers are read from the paper's figures and carry about ±0.01; any error in reading them is
+  this repository's. A gap measured here is a gap against this reproduction.
+- **Two of the paper's four datasets are private** (Neuronexus, macaque) and untested.
+- **Statistics are thin where training is expensive.** Baselines use all 17 leave-one-session-out
+  folds. Fine-tunes currently have three within-lab sessions and one seed per cross-lab
+  configuration; the remaining sessions and two more seeds are training, and every table and
+  figure regenerates from saved results.
+- **Labels are histological estimates** taken as given, for this work as for the paper. Every
+  score is conditional on a channel being labelled with one of the target regions.
+- **Conventions matter when comparing to the paper.** Its chance level is the majority-class rate,
+  its within-session figure is balanced accuracy, and its cross-lab matrix is raw accuracy. Rows
+  that cite the paper use its convention ([`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D13).
 
-**Deleting the contaminated bands helps, in one direction only.** Training on Allen and testing on
-IBL, removing the gamma band raises the fine-tuned model from 0.256 to **0.409** against a chance
-of 0.250, recovering about two fifths of the within-lab margin by discarding information. The same
-deletion does nothing in reverse.
+[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) lists every place this pipeline differs from the paper
+or its released code, and why.
 
-That follows from the spectral divergence recorded in Stage 1 before any model existed: Allen
-retains energy above 300 Hz where the IBL pipeline filters it away. A model trained on Allen learns
-content absent from IBL and is misled when it goes missing; a model trained on IBL never had the
-chance to learn it. Band power loses accuracy from every deletion, because each of its features
-carries signal and none is a learned shortcut.
+## Corrections
 
-**The amplitude controls are exactly zero** in all six model-by-direction cells, which is the check
-that the pipeline normalises where it claims to.
+**21 September 2026.** Until this date the electrode-position baseline included depth rescaled to
+the span of channels kept on each probe. Kept channels are chosen by histology label, so that
+feature encoded the test probe's own anatomy: alone it scores 0.81 and 0.76 across labs, where
+honest position scores 0.23 and 0.30. Earlier versions of this README therefore claimed, wrongly,
+that position beat the signal-based models across labs, and overstated it within lab. The feature
+is fixed, a unit test pins the property that distinguishes the two, and every table and figure
+was regenerated ([`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D15). The permutation control for
+one- and two-number features was also changed from one draw to the mean of twenty, because a model
+with so few possible decision functions can match the anatomy on a single unlucky relabelling.
 
-## Planned experiments
-
-| Stage | Experiment | Status |
-|---|---|---|
-| 1 | IBL and Allen data layer, group-aware splits, leakage verifier | **done** |
-| 2 | Baselines: constant, depth-only, band-power, frozen wav2vec2 | **done** |
-| 3 | LFP2Vec-lite fine-tune, cross-session and cross-lab | **done** |
-| 4 | Temperature scaling, band-stop and phase-randomisation ablations | **done** |
-| 5 | Selective prediction: risk–coverage under shift | **done**, folded into Stage 4 |
-| 6 | Two-page note and figures | planned |
-
-## Reproducing what exists today
+## Reproducing
 
 ```bash
-make setup    # uv venv + editable install
-make test     # full unit suite, synthetic data only, no network
-make smoke    # end-to-end pipeline run with planted ground truth
+git clone https://github.com/happyc0der/lfp2vec-audit && cd lfp2vec-audit
+make setup        # uv environment, Python 3.11
+make test         # 300+ unit tests on synthetic data, no network
+make smoke        # end-to-end synthetic run with its permutation gate
+
+make data-ibl data-allen   # about 5 GB of public recordings; builds the chunk stores
+make features baselines    # baselines across all 17 folds (CPU, under an hour)
+lfpaudit finetune run --scheme cross_lab_ibl_to_allen --lowpass 100 --save-model   # ~2.5 h on an M-series GPU
+make figures
 ```
 
-`make smoke` generates a synthetic dataset with known spectral signatures per region, builds a group-aware split, verifies it for leakage, fits a band-power classifier, and asserts two gates: the classifier beats chance, and the same classifier trained on permuted labels does not. Every real experiment must pass this first.
+Every training run passes a synthetic smoke test, a leakage check on its split, and a measured
+throughput gate before it starts, and writes a manifest with the git commit, data hashes, seed
+and configuration before its first step. The test-set logits of every run are saved, so all
+calibration, abstention and post-processing analysis is reproducible without retraining.
 
-Building the real datasets, which does touch the network:
+## Where things are
 
-```bash
-make data-ibl      # seven insertions, ~2.3 GB fetched
-make data-allen    # two sessions, read over HTTP ranges
-make splits        # write and verify every split
-make real-smoke    # the same gates, on real data
-```
-
-## Data
-
-| Source | Access | Labels | Fetched |
-|---|---|---|---|
-| [IBL](https://docs.internationalbrainlab.org/) Neuropixels | byte prefix of the compressed LF band, via ONE-api | CCF acronym per channel, from histological alignment | ~330 MB per insertion, of 2.4–3.8 GB files |
-| [Allen Visual Coding](https://allensdk.readthedocs.io/en/latest/visual_coding_neuropixels.html) Neuropixels | HTTP range reads of the public NWB files | `location` column of the electrode table | ~140 MB per probe, of 1.3–2.5 GB files |
-
-Both are cut to the same 3-second, 1250 Hz chunks and stored as one normalised float16 array plus a parquet index. The mean and scale removed by normalisation are recorded per chunk, so the original microvolt waveform is recoverable.
-
-Neither dataset is fetched whole. The IBL recordings are compressed in one-second chunks stored in order, so the 500-second window the analysis uses is a byte prefix of the file; a truncated header describing only those chunks makes that prefix a valid standalone recording. The Allen files are read with range requests, one time slab across all channels at a time, which matches how their chunks are laid out on disk.
-
-Raw data is never committed. Only run manifests, metrics, dataset cards and inspection figures live in the repository.
-
-## Repository layout
-
-```
-lfpaudit/data/      fetch, label, chunk, index, split
-lfpaudit/features/  band power, geometry
-lfpaudit/models/    baselines and the wav2vec2 reproduction
-lfpaudit/eval/      metrics, calibration, ablations, attribution, selective prediction
-experiments/        one YAML per run
-results/            manifests and metrics, committed
-docs/               lab notebook, deviations, development notes
-```
-
-## Development notes
-
-Much of this code was written with Claude Code. See [`docs/DEVELOPMENT_NOTES.md`](docs/DEVELOPMENT_NOTES.md) for what that means in practice and which parts were verified by hand. The running log of commands, decisions and dead ends is in [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md).
+| | |
+|---|---|
+| [`note/note.pdf`](note/note.pdf) | the two-page summary |
+| `docs/RESULTS_*.md` | full tables, generated from `results/` by the CLI |
+| [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) | every difference from the paper and its code, and every correction |
+| [`docs/LAB_NOTEBOOK.md`](docs/LAB_NOTEBOOK.md) | dated working notes, including what went wrong |
+| [`docs/DATA_CARD.md`](docs/DATA_CARD.md) | channels and chunks per probe and region |
+| [`docs/DEVELOPMENT_NOTES.md`](docs/DEVELOPMENT_NOTES.md) | how this was built, including the use of Claude Code |
+| `lfpaudit/` | data loaders, features, models, evaluation, CLI |
+| `results/` | per-fold metrics and manifests for every run |
 
 ## References
 
-1. He, T., Patel, S., Li, S., Maslarova, A., Vöröslakos, M., Ramanathan, D., Hung, C., Buzsáki, G., & Varol, E. (2025). Self-supervised learning for in vivo localization of microelectrode arrays using raw local field potential. *NeurIPS 2025*.
-2. Perna, G., Adamo, S., Vincenzi, M., Angotzi, G. N., Ribeiro, J. F., & Berdondini, L. (2026). LFP-LOC: an LFP power-based method for validating electrode localization. *Frontiers in Neuroscience*.
-3. Baevski, A., Zhou, H., Mohamed, A., & Auli, M. (2020). wav2vec 2.0: a framework for self-supervised learning of speech representations. *NeurIPS 2020*.
-4. International Brain Laboratory (2023). A brain-wide map of neural activity during complex behaviour. *bioRxiv*.
-5. Siegle, J. H. et al. (2021). Survey of spiking in the mouse visual system reveals functional hierarchy. *Nature*.
+- He, Patel, Li, Maslarova, Vöröslakos, Ramanathan, Hung, Buzsáki, Varol. *Self supervised learning for in vivo localization of microelectrode arrays using raw local field potential.* NeurIPS 2025. Code: [`tianxiao18/lfp2vec`](https://github.com/tianxiao18/lfp2vec).
+- Perna, Adamo, Vincenzi, Angotzi, Ribeiro, Berdondini. *LFP-LOC.* Frontiers in Neuroscience, 2026.
+- International Brain Laboratory, Brain-wide map. Allen Institute, Visual Coding Neuropixels.
 
 ## Licence
 

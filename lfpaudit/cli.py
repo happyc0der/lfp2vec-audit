@@ -486,6 +486,9 @@ def baselines_run(
     out: Path = typer.Option(Path("results/baselines")),
     device: str = typer.Option(None, help="Device for wav2vec2 embeddings."),
     seed: int = typer.Option(0),
+    merge: bool = typer.Option(
+        False, help="Keep existing rows for feature sets not named in --which."
+    ),
 ) -> None:
     """Every feature set against every model, across every fold of every scheme."""
     from lfpaudit.eval.folds import build_schemes
@@ -524,6 +527,11 @@ def baselines_run(
     table = run_sweep(
         schemes, tables, labels, positions, spec, predictions_dir=Path(out) / "predictions"
     )
+    existing = Path(out) / "folds.csv"
+    if merge and existing.exists():
+        kept = pd.read_csv(existing)
+        kept = kept[~kept["features"].isin(feature_names)]
+        table = pd.concat([kept, table], ignore_index=True)
     paths = write_results(table, out)
     manifest.finish(out, status="ok")
     typer.secho(f"wrote {len(table)} rows to {paths['folds']}", fg=typer.colors.GREEN)
@@ -539,6 +547,9 @@ def baselines_table(
     from lfpaudit.eval.runner import paired_comparison, summarise
 
     folds = pd.read_csv(results / "folds.csv")
+    # A diagnostic that encodes the test probe's labels is documented in RESULTS_POSITION.md and
+    # kept out of every ranking here, where it would read as a method someone could use.
+    folds = folds[folds["features"] != "position_leaky_span"]
     summary = summarise(folds)
     summary = summary[(summary["view"] == view) & (summary["control"] == "model")]
 
@@ -1080,6 +1091,7 @@ def finetune_report(
         baseline_path = Path(baselines) / "folds.csv"
         if baseline_path.exists():
             folds = pd.read_csv(baseline_path)
+            folds = folds[folds["features"] != "position_leaky_span"]
             reference = folds[
                 (folds["scheme"] == scheme)
                 & (folds["view"] == view)
@@ -1108,6 +1120,7 @@ def finetune_report(
         if len(tuned) < 2:
             continue
         folds = pd.read_csv(baseline_path)
+        folds = folds[folds["features"] != "position_leaky_span"]
         reference = folds[
             (folds["scheme"] == scheme)
             & (folds["view"] == view)
@@ -1622,6 +1635,9 @@ def postprocess(
         "for the scheme named by --run, e.g. position or bandpower_full.",
     ),
     baselines_dir: Path = typer.Option(Path("results/baselines/predictions")),
+    view: str = typer.Option(
+        "4class", help="Class view to score on, so every row of the fixes table shares chunks."
+    ),
 ) -> None:
     """Apply the paper's post-processing to a saved run and score every stage.
 
@@ -1658,6 +1674,13 @@ def postprocess(
         frame = frame.join(corpus.index.set_index("chunk_id")[["group"]], on="chunk_id")
     geometry = corpus.index.set_index("chunk_id")[["channel", "depth_um"]]
     frame = frame.join(geometry, on="chunk_id")
+    # Score on one class view for every run and baseline alike. CA2 exists on four channels of
+    # one dataset; including it for some rows and not others shifts the majority rate they are
+    # compared against.
+    from lfpaudit.eval.runner import CLASS_VIEWS
+
+    allowed = [REGION_TO_INDEX[name] for name in CLASS_VIEWS[view]]
+    frame = frame[frame["label"].isin(allowed)].reset_index(drop=True)
     logits = frame[[f"logit_{r}" for r in REGIONS]].to_numpy()
     truth = frame["label"].to_numpy()
 

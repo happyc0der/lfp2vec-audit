@@ -43,6 +43,14 @@ class ExperimentSpec:
     views: list[str] = field(default_factory=lambda: ["4class", "5class"])
     seed: int = 0
     save_predictions_for: list[str] = field(default_factory=list)
+    #: Permutation draws for feature sets no wider than ``narrow_width``. A model over one or two
+    #: numbers has very few possible decision functions, so a single random relabelling can hand
+    #: it a split that happens to follow the anatomy; one IBL fold scored 0.40 against a chance
+    #: of 0.25 that way, for every narrow feature at once. Averaging draws is the right null, and
+    #: for narrow features the fits are free. Wide feature sets keep one draw, which is both
+    #: expensive to repeat and, empirically, never above chance.
+    narrow_width: int = 2
+    narrow_permutation_draws: int = 20
 
 
 def _view_mask(labels: np.ndarray, view: str) -> np.ndarray:
@@ -60,6 +68,7 @@ def run_fold(
     view: str,
     seed: int = 0,
     predictions_dir: Path | None = None,
+    permutation_draws: int = 1,
 ) -> list[dict]:
     """Fit and score one configuration on one fold, with its permutation control.
 
@@ -83,9 +92,30 @@ def run_fold(
     test_x, test_y = features[test_rows], labels[test_rows]
     rng = np.random.default_rng(seed)
 
-    for control, fit_labels in (("model", train_y), ("permuted", rng.permutation(train_y))):
-        probs = fit_predict(model_name, train_x, fit_labels, test_x, seed=seed)
-        report = evaluate(probs, test_y)
+    for control in ("model", "permuted"):
+        if control == "model":
+            probs = fit_predict(model_name, train_x, train_y, test_x, seed=seed)
+            reports = [evaluate(probs, test_y)]
+        else:
+            # The null is a distribution, not a draw. Extra draws fit on a subsample, since a
+            # model of shuffled labels learns nothing that more rows would sharpen.
+            reports = []
+            for draw in range(max(1, permutation_draws)):
+                keep = (
+                    np.arange(len(train_y))
+                    if draw == 0 or len(train_y) <= 20000
+                    else rng.choice(len(train_y), 20000, replace=False)
+                )
+                shuffled = rng.permutation(train_y[keep])
+                if len(np.unique(shuffled)) < 2:
+                    continue
+                reports.append(
+                    evaluate(
+                        fit_predict(model_name, train_x[keep], shuffled, test_x, seed=seed), test_y
+                    )
+                )
+        report = reports[0]
+        scores = np.array([r.balanced_accuracy for r in reports])
         band = chance_level_band(test_y)
         rows.append(
             {
@@ -100,7 +130,9 @@ def run_fold(
                 "n_test": int(len(test_rows)),
                 "chance": report.chance,
                 "noise_band": band,
-                "balanced_accuracy": report.balanced_accuracy,
+                "balanced_accuracy": float(scores.mean()),
+                "draws": int(len(scores)),
+                "balanced_accuracy_max_draw": float(scores.max()),
                 "accuracy": report.accuracy,
                 "macro_f1": report.macro_f1,
                 "nll": report.nll,
@@ -108,7 +140,7 @@ def run_fold(
                 "ece": report.ece,
                 "ece_adaptive": report.ece_adaptive,
                 "classes_present": "|".join(report.classes_present),
-                "above_chance": report.balanced_accuracy - report.chance,
+                "above_chance": float(scores.mean()) - report.chance,
                 **{f"recall_{k}": v for k, v in report.per_class_recall.items()},
             }
         )
@@ -161,6 +193,11 @@ def run_sweep(
                                 view=view,
                                 seed=spec.seed,
                                 predictions_dir=save_to,
+                                permutation_draws=(
+                                    spec.narrow_permutation_draws
+                                    if features.shape[1] <= spec.narrow_width
+                                    else 1
+                                ),
                             )
                         )
                     if verbose:

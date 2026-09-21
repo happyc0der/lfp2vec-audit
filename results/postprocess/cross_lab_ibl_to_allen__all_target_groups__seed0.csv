@@ -1,6 +1,6 @@
 run,stage,level,raw_accuracy,balanced_accuracy,chance,majority,n
-cross_lab_ibl_to_allen__all_target_groups__seed0,raw,chunk,0.4197609561752988,0.1933191580829476,0.2,0.45219123505976094,50200
-cross_lab_ibl_to_allen__all_target_groups__seed0,temporal,chunk,0.41832669322709165,0.1892754063496886,0.2,0.45219123505976094,50200
-cross_lab_ibl_to_allen__all_target_groups__seed0,temporal,channel,0.41832669322709165,0.1892754063496886,0.2,0.45219123505976094,502
-cross_lab_ibl_to_allen__all_target_groups__seed0,spatial,chunk,0.4243027888446215,0.19191857815585597,0.2,0.45219123505976094,50200
-cross_lab_ibl_to_allen__all_target_groups__seed0,spatial,channel,0.4243027888446215,0.19191857815585597,0.2,0.45219123505976094,502
+cross_lab_ibl_to_allen__all_target_groups__seed0,raw,chunk,0.4231325301204819,0.24164894760368452,0.25,0.45582329317269077,49800
+cross_lab_ibl_to_allen__all_target_groups__seed0,temporal,chunk,0.42168674698795183,0.23659425793711072,0.25,0.45582329317269077,49800
+cross_lab_ibl_to_allen__all_target_groups__seed0,temporal,channel,0.42168674698795183,0.23659425793711072,0.25,0.45582329317269077,498
+cross_lab_ibl_to_allen__all_target_groups__seed0,spatial,chunk,0.42771084337349397,0.23989822269481997,0.25,0.45582329317269077,49800
+cross_lab_ibl_to_allen__all_target_groups__seed0,spatial,channel,0.42771084337349397,0.23989822269481997,0.25,0.45582329317269077,498

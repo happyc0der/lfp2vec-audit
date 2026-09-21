@@ -71,7 +71,11 @@ def test_readme_status_matches_the_stage_table():
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
 
     status = [line for line in readme.splitlines() if line.startswith("> **Status:")]
-    assert len(status) == 1, f"expected exactly one status banner, found {len(status)}"
+    if not status:
+        # A finished README carries no stage banner, and then there is nothing to go stale.
+        assert "| planned |" not in readme, "README lists planned work but has no status banner"
+        return
+    assert len(status) == 1, f"expected at most one status banner, found {len(status)}"
 
     rows = dict(
         (int(number), "**done**" in state)

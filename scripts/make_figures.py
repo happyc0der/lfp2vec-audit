@@ -539,19 +539,19 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
         "cross_lab_ibl_to_allen": ("IBL → Allen", 0.11),
         "cross_lab_allen_to_ibl": ("Allen → IBL", 0.12),
     }
+    # Whitening is left to the detailed table: it lost to the low-pass in both directions, and
+    # this figure opens the README, where it has one thing to say.
     names = {
-        "all_target_groups__seed0": "reproduction",
-        "all_target_groups__seed0__lp100": "harmonised ≤100 Hz",
-        "all_target_groups__seed0__whiten": "whitened",
-        "baseline_position": "electrode position",
+        "all_target_groups__seed0": "fine-tuned, full band",
+        "all_target_groups__seed0__lp100": "fine-tuned, filters matched",
         "baseline_bandpower_full": "band power",
+        "baseline_position": "electrode position",
     }
     colours = {
-        "reproduction": "#7b3294",
-        "harmonised ≤100 Hz": "#b8a0d0",
-        "whitened": "#d9cce6",
-        "electrode position": "#c1440e",
+        "fine-tuned, full band": "#8f8f8f",
+        "fine-tuned, filters matched": "#1f7a4d",
         "band power": "#1f4e79",
+        "electrode position": "#c1440e",
     }
     chunk = table[table["level"] == "chunk"].copy()
     chunk["scheme"] = chunk["run"].str.replace(r"__(all_target|baseline).*", "", regex=True)
@@ -575,6 +575,8 @@ def fixes_figure(table: pd.DataFrame, out_path: Path) -> Path:
             after = float(rows.loc["spatial", "margin"]) if "spatial" in rows.index else before
             ax.bar(position - 0.19, before, width=0.36, color=colours[config], alpha=0.45, zorder=2)
             ax.bar(position + 0.19, after, width=0.36, color=colours[config], zorder=2)
+            if abs(after) < 0.004:  # a bar of zero height still deserves to be seen
+                ax.text(position, 0.006, "0.00", ha="center", fontsize=7.5, color=colours[config])
         label, published = paper[scheme]
         ax.axhline(published, color="#d62728", linestyle="--", linewidth=1.3, zorder=1)
         ax.text(

@@ -1,6 +1,0 @@
-run,stage,level,raw_accuracy,balanced_accuracy,chance,majority,n
-cross_lab_allen_to_ibl__baseline_geometry,raw,chunk,0.5769230769230769,0.4336734693877551,0.25,0.3695324283559578,132600
-cross_lab_allen_to_ibl__baseline_geometry,temporal,chunk,0.5769230769230769,0.4336734693877551,0.25,0.3695324283559578,132600
-cross_lab_allen_to_ibl__baseline_geometry,temporal,channel,0.5769230769230769,0.4336734693877551,0.25,0.3695324283559578,1326
-cross_lab_allen_to_ibl__baseline_geometry,spatial,chunk,0.5769230769230769,0.4336734693877551,0.25,0.3695324283559578,132600
-cross_lab_allen_to_ibl__baseline_geometry,spatial,channel,0.5769230769230769,0.4336734693877551,0.25,0.3695324283559578,1326
