@@ -30,14 +30,15 @@ every fold sit at chance.
 
 ## Results
 
-**1. Within a lab it reproduces.** 0.72 balanced accuracy on held-out IBL sessions against the
-paper's 0.68; with the paper's post-processing, 0.76. Fine-tuning adds 0.007 over the untrained
-audio checkpoint with a linear head, and replacing inputs with surrogates that keep the power
-spectrum and destroy the waveform costs 0.008: on this task the model reads spectral power. It
-beats six-band power by 0.24.
+**1. Within a lab it reproduces.** 0.74 ± 0.07 balanced accuracy over all seven held-out IBL
+sessions against the paper's 0.68; with the paper's post-processing, 0.81. Fine-tuning adds 0.04
+over the untrained audio checkpoint with a linear head (5 of 7 sessions, p = 0.22), and replacing
+inputs with surrogates that keep the power spectrum and destroy the waveform costs 0.008: on this
+task the model reads spectral power. It beats six-band power by 0.30 on every session (p = 0.016).
 
 **2. Across labs the full-band model collapses, confidently.** It predicts one class for 94% of
-the other lab's chunks at 0.98 confidence, landing below the majority rate in both directions. A
+the other lab's chunks at 0.98 confidence, landing below the majority rate in both directions on
+every one of three seeds. A
 linear probe recovers the source lab from its embeddings at AUC 0.997 on unseen probes. The source
 is measurable: the datasets' spectra agree below 100 Hz and diverge up to 768-fold above 300 Hz,
 because one pipeline band-passes and the other does not.
@@ -48,13 +49,18 @@ before any cross-lab result existed, with no labels from the target lab:
 | raw accuracy minus majority rate | IBL → Allen | Allen → IBL |
 |---|---:|---:|
 | LFP2Vec as published *(Figure 2e)* | +0.11 | +0.12 |
-| fine-tuned, full band | −0.03 | −0.06 |
-| **fine-tuned, filters matched, + paper's post-processing** | **+0.15** | **+0.12** |
+| fine-tuned, full band (3 seeds) | −0.01 ± 0.01 | −0.04 ± 0.04 |
+| **fine-tuned, filters matched, + paper's post-processing (3 seeds)** | **+0.08 ± 0.07** | **+0.13 ± 0.03** |
+| untrained checkpoint, filters matched, linear head, + post-processing | +0.09 | +0.13 |
 | band power + paper's post-processing | +0.17 | +0.03 |
 | electrode position | −0.24 | 0.00 |
 
-Balanced accuracy goes from 0.24 and 0.26 to 0.46 and 0.37 (0.56 and 0.36 post-processed), the
-best of any method tested; lab identity falls to 0.83 and 0.74. Ruled out along the way: the
+Balanced accuracy goes from 0.24 and 0.27 to 0.44 ± 0.10 and 0.37 ± 0.03, the best of any method
+tested; lab identity falls from 0.998 to 0.82 and 0.78. The margin matches the published value
+from Allen to IBL on every seed and falls short of it on average from IBL to Allen (seeds +0.15,
++0.02, +0.08). The untrained checkpoint on the same harmonised inputs, with nothing but a linear
+head fitted, reaches the same margins as the fine-tuned mean with no training of the encoder.
+Ruled out along the way: the
 paper's post-processing alone (0.004 on a collapsed model), per-probe embedding centering (removes
 the lab signature, leaves transfer at chance), and whitening each probe's whole spectrum (worse
 than the low-pass in both directions).
@@ -75,7 +81,8 @@ source beyond about ±280 µm.
 
 The reduced method does what the paper reports within a lab. Its cross-lab failure here was
 preprocessing the two datasets do not share, not the representation, and one line of filtering
-recovers the published margin. Confidence is the part that does not transfer, and the measurement
+recovers the published margin in one direction and most of it in the other, with or without
+training the encoder. Confidence is the part that does not transfer, and the measurement
 the paper calls for is the one that shows it.
 
 **Next.** Run the paper's full pipeline, self-supervision included, on inputs harmonised first,
@@ -85,7 +92,7 @@ physiology; if it falls toward 0.5, acquisition was the whole story.
 ## Limitations
 
 Two of the paper's four datasets are private and untested. Labels are histological estimates taken
-as given. Fine-tunes have three within-lab sessions and one seed per configuration so far; more
-are training. Published numbers are read from bitmaps. An earlier version of this note reported a
+as given. Within-lab fine-tunes have one seed per session and were not run on Allen; cross-lab
+fine-tunes have three seeds. Published numbers are read from bitmaps. An earlier version of this note reported a
 position baseline that leaked test labels; it is corrected here. Much of the code was generated
 with Claude; every experiment, split and number was independently checked.

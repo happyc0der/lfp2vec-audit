@@ -1,0 +1,3 @@
+scheme,group,view,seed,lowpass_hz,permuted,n_test,chance,balanced_accuracy,macro_f1,ece,nll,classes_present
+loso_ibl,d2832a38_probe00,4class,0,0.0,False,18300,0.25,0.6935171748481781,0.6836504013574017,0.08218287929523121,0.49704321808456975,CA1|CA3|DG|VIS
+loso_ibl,d2832a38_probe00,5class,0,0.0,False,18300,0.25,0.6935171748481781,0.6836504013574017,0.08218287929523121,0.49704321808456975,CA1|CA3|DG|VIS

@@ -9,8 +9,8 @@ electrode sits in, from three seconds of one channel. This repository reproduces
 stage on the two public datasets the paper uses, IBL and Allen Neuropixels, and reports three
 things:
 
-1. **Within a lab it reproduces.** 0.72 balanced accuracy on held-out IBL sessions against the
-   paper's 0.68, from a laptop, without the self-supervised stage.
+1. **Within a lab it reproduces.** 0.74 ± 0.07 balanced accuracy over all seven held-out IBL
+   sessions against the paper's 0.68, from a laptop, without the self-supervised stage.
 2. **Across labs the reproduction fails, and the cause is preprocessing, not representation.** The
    two datasets are filtered differently above 100 Hz. Low-passing every input at 100 Hz takes
    cross-lab transfer from chance to well above it in both directions, using no labels from the
@@ -22,8 +22,8 @@ things:
 
 *Cross-lab transfer on the paper's own metric: raw accuracy minus the target lab's majority-class
 rate. Light bars before the paper's post-processing, solid after; the dashed line is the published
-margin, read from the paper's Figure 2e. Bars are means over the seeds finished so far, dots are
-individual seeds; more are training and this figure regenerates from saved results.*
+margin, read from the paper's Figure 2e. Bars are means over three seeds, dots are individual
+seeds.*
 
 *Corrected 21 September 2026: an earlier version's position baseline leaked test labels. See
 [Corrections](#corrections).*
@@ -43,22 +43,24 @@ control on the same fold, and all sit at chance.
 | band power, six bands | 0.44 | 0.59 |
 | electrode position | 0.77 | 0.49 |
 | audio checkpoint, nothing trained, linear head | 0.70 | 0.70 |
-| **fine-tuned (this reproduction)** | **0.72** (3 sessions) | not run |
-| fine-tuned + the paper's post-processing | 0.76 | |
+| **fine-tuned (this reproduction)** | **0.74 ± 0.07** (7 sessions) | not run |
+| fine-tuned + the paper's post-processing | 0.81 | |
 | LFP2Vec as published *(read from Figure 2a)* | 0.68 | 0.65 |
 
-- **The reduced method lands where the paper does**, and the paper's post-processing adds the
-  0.05 it reports adding.
-- **Fine-tuning adds 0.007 over the untrained audio checkpoint** on the same sessions. Replacing
+- **The reduced method lands where the paper does**, on every one of the seven sessions (range
+  0.63–0.83), and the paper's post-processing adds 0.07 where the paper reports about 0.05.
+- **Fine-tuning adds 0.04 over the untrained audio checkpoint** on the same seven sessions
+  (5 of 7 folds, signed-rank p = 0.22). Replacing
   every input with a surrogate that keeps its power spectrum and destroys its waveform costs the
   fine-tuned model 0.008. On this task the model reads spectral power and little else, which is
   consistent with the paper's own ablation, where audio initialisation carries most of the benefit.
-- **The signal clearly beats six-band power** (+0.24 on IBL), so it is not reducible to the
+- **The signal clearly beats six-band power** (+0.30 on IBL, all seven folds, p = 0.016), so it is not reducible to the
   hand-designed summary that [LFP-LOC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13199280/) proposes
   in its place.
 - **Electrode position is a serious competitor only where insertions are stereotyped.** On IBL,
   where all seven insertions target the same structures, depth along the shank alone reaches 0.77
-  and ties the fine-tune on the same sessions (0.73 against 0.72). On Allen it reaches 0.49 and the
+  and ties the fine-tune over the seven sessions (0.77 against 0.74, 3 of 7 folds to the
+  fine-tune, p = 0.58). On Allen it reaches 0.49 and the
   signal is far ahead. See result 5.
 
 Details: [`docs/RESULTS_BASELINES.md`](docs/RESULTS_BASELINES.md),
@@ -70,8 +72,8 @@ Train on one lab, test on every probe of the other:
 
 | | IBL → Allen | Allen → IBL |
 |---|---:|---:|
-| balanced accuracy (chance 0.25) | 0.24 | 0.26 |
-| raw accuracy minus majority rate | −0.03 | −0.06 |
+| balanced accuracy (chance 0.25), mean of 3 seeds | 0.24 ± 0.01 | 0.27 ± 0.04 |
+| raw accuracy minus majority rate, 3 seeds | −0.01 ± 0.01 | −0.04 ± 0.04 |
 | LFP2Vec as published *(Figure 2e)* | +0.11 | +0.12 |
 | expected calibration error, in lab → across labs | 0.10 → 0.56 | 0.11 → 0.66 |
 | source lab recoverable from the embeddings (AUC) | 0.997 | 0.994 |
@@ -107,7 +109,7 @@ three seeds the harmonised model's post-processed margin is **+0.13 ± 0.03 for 
 (seeds +0.12, +0.11, +0.17), level with the published +0.12, and **+0.08 ± 0.07 for
 IBL → Allen** (seeds +0.15, +0.02, +0.08), below the published +0.11. Balanced accuracy is
 0.44 ± 0.10 and 0.37 ± 0.03 against 0.25 for the full-band model, whose collapse repeats on a
-second seed (margin −0.01 ± 0.02, lab identity 0.998). So harmonising reliably restores transfer,
+every seed (margin −0.01 ± 0.01 and −0.04 ± 0.04, lab identity 0.998 and 0.997). So harmonising reliably restores transfer,
 matches the published margin in one direction, and falls short of it on average in the other.
 [`docs/RESULTS_FIXES.md`](docs/RESULTS_FIXES.md) has the current means and spreads.
 
@@ -196,9 +198,9 @@ Details: [`docs/RESULTS_POSITION.md`](docs/RESULTS_POSITION.md).
   this repository's. A gap measured here is a gap against this reproduction.
 - **Two of the paper's four datasets are private** (Neuronexus, macaque) and untested.
 - **Statistics are thin where training is expensive.** Baselines use all 17 leave-one-session-out
-  folds. Fine-tunes currently have three within-lab sessions and one seed per cross-lab
-  configuration; the remaining sessions and two more seeds are training, and every table and
-  figure regenerates from saved results.
+  folds. Fine-tunes have all seven IBL sessions within lab (one seed each) and three seeds per
+  cross-lab configuration; within-Allen fine-tunes were not run. Every table and figure
+  regenerates from saved results.
 - **Labels are histological estimates** taken as given, for this work as for the paper. Every
   score is conditional on a channel being labelled with one of the target regions.
 - **Conventions matter when comparing to the paper.** Its chance level is the majority-class rate,
