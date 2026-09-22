@@ -236,6 +236,29 @@ lfpaudit finetune run --scheme cross_lab_ibl_to_allen --lowpass 100 --save-model
 make figures
 ```
 
+### Training details
+
+Every fine-tune in this repository uses the same recipe, taken from the paper's Table 2 where it
+states a value and recorded in each run's `manifest.json` otherwise.
+
+| | |
+|---|---|
+| model | `facebook/wav2vec2-base` (94.6M parameters) with the stock sequence-classification head: project to 256, mean-pool over time, classify into 5 regions |
+| frozen | the convolutional feature encoder (4.2M parameters); all 12 transformer layers train (90.4M trainable) |
+| input | 3 s single-channel chunks at 1250 Hz, optionally low-passed (4th-order Butterworth, zero-phase), resampled to 16 kHz, then z-scored per chunk |
+| training set | class-balanced sample of up to 6 000 chunks per class from the training sessions, 22 000 chunks for a cross-lab run |
+| validation | one whole session held out from the training lab (never the test session), 4 000 chunks, balanced accuracy |
+| optimiser | AdamW, learning rate 3e-5, weight decay 0.01, batch 8 with 4 accumulation steps (effective 32) |
+| schedule | 10 epochs, linear warm-up over the first 10% of steps then linear decay |
+| early stopping | patience 2 on validation balanced accuracy; the best epoch's weights are restored. Runs stopped after 2 to 10 epochs (median 6) |
+| hardware | one M4 Pro laptop, MPS backend, 22–25 chunks/s, about 16 min per epoch and 2 to 2.5 h per cross-lab run; 23 fine-tunes plus one permuted-label control |
+| reproducibility | seeded; the IBL → Allen run repeated in Stage 4 matched its Stage 3 copy to every decimal on every probe |
+| what is saved | test-set logits for every chunk, validation logits, pooled 256-d embeddings, per-epoch history, and (with `--save-model`) the weights |
+
+Not run, from the paper's pipeline: the self-supervised continuation (D1 in
+[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), it runs per dataset in the released code and its own
+ablation shows it adding 0.00 on IBL), and within-Allen fine-tunes.
+
 Every training run passes a synthetic smoke test, a leakage check on its split, and a measured
 throughput gate before it starts, and writes a manifest with the git commit, data hashes, seed
 and configuration before its first step. The test-set logits of every run are saved, so all
