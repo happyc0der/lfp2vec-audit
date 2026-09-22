@@ -18,6 +18,19 @@ things:
 3. **Two measurements the paper does not make change how its results read**: calibration under
    lab shift, which its Broader Impact section calls for, and an electrode-position control.
 
+**At a glance, against the paper's own numbers** (theirs read from its figures, ±0.01):
+
+| | paper | this reproduction | seeds / sessions |
+|---|---:|---:|---|
+| within IBL, balanced accuracy | 0.68 | **0.74 ± 0.07** (0.81 post-processed) | 7 sessions |
+| IBL → Allen, margin over majority rate, full band | +0.11 | −0.01 ± 0.01 | 3 seeds |
+| IBL → Allen, filters matched | | **+0.08 ± 0.07** | 3 seeds |
+| Allen → IBL, full band | +0.12 | −0.04 ± 0.04 | 3 seeds |
+| Allen → IBL, filters matched | | **+0.13 ± 0.03** | 3 seeds |
+| same, with **no** encoder training (untrained checkpoint + linear head) | | +0.09 / +0.13 | one forward pass |
+| calibration error, in lab → across labs | not reported | 0.10 → 0.55 (0.32 filters matched) | 3 seeds |
+| source lab recoverable from embeddings (AUC) | not reported | 0.998 → 0.80 filters matched | 3 seeds |
+
 ![cross-lab margins](docs/figures/fixes.png)
 
 *Cross-lab transfer on the paper's own metric: raw accuracy minus the target lab's majority-class
@@ -63,6 +76,12 @@ control on the same fold, and all sit at chance.
   fine-tune, p = 0.58). On Allen it reaches 0.49 and the
   signal is far ahead. See result 5.
 
+![fine-tune against baselines](docs/figures/finetune.png)
+
+*Balanced accuracy per method, one dot per held-out session. Within IBL (left) the fine-tuned
+model and the untrained checkpoint sit together above band power, and electrode position alone
+is level with them. Across labs (middle, right) every neural model drops to the chance line.*
+
 Details: [`docs/RESULTS_BASELINES.md`](docs/RESULTS_BASELINES.md),
 [`docs/RESULTS_FINETUNE.md`](docs/RESULTS_FINETUNE.md).
 
@@ -87,6 +106,12 @@ The signature has a measurable source. The two datasets' mean spectra agree belo
 diverge by up to 768-fold above 300 Hz, because the IBL pipeline band-passes at 0.5–300 Hz and
 the Allen release does not ([`docs/DEVIATIONS.md`](docs/DEVIATIONS.md), D11). This was recorded
 while building the datasets, before any model was trained.
+
+![mean spectra](docs/figures/spectra.png)
+
+*Mean power spectrum of each dataset on a fixed 4 000-chunk subsample. The curves lie on top of
+each other below 100 Hz and separate by orders of magnitude above it. A model trained on one
+lab's full band learns the right-hand side, which the other lab does not have.*
 
 ### 3. Matching the filters restores transfer
 

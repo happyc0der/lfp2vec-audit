@@ -298,6 +298,56 @@ def depth_uncertainty_figure(table: pd.DataFrame, out_path: Path) -> Path:
     return out_path
 
 
+def spectra_figure(psd: pd.DataFrame, out_path: Path) -> Path:
+    """Mean power spectrum of each dataset: where the two labs agree and where they do not.
+
+    The shaded band is the region the harmonised models keep. Everything to its right is where
+    one pipeline's band-pass filter and the other's absence of one push the spectra apart.
+    """
+    fig, ax = plt.subplots(figsize=(6.2, 3.6))
+    colours = {"ibl": "#1f4e79", "allen": "#c1440e"}
+    for name, part in psd.groupby("dataset"):
+        part = part[part["freq_hz"] > 0]
+        ax.loglog(
+            part["freq_hz"],
+            part["psd"],
+            color=colours.get(name, "#444"),
+            label=name.upper(),
+            lw=1.6,
+        )
+    ax.axvspan(1, 100, color="#1f7a4d", alpha=0.10, lw=0)
+    ax.axvline(100, color="#1f7a4d", ls="--", lw=1)
+    ax.text(3, ax.get_ylim()[0] * 3, "kept by the\nharmonised models", fontsize=8, color="#1f7a4d")
+    # The two stores' frequency grids differ in the fourth decimal, so interpolate before dividing.
+    # Reported the way DEVIATIONS D11 measured it: the ratio at 500 Hz, each spectrum normalised
+    # to its own value at 10 Hz.
+    ibl = psd[psd["dataset"] == "ibl"].sort_values("freq_hz")
+    allen = psd[psd["dataset"] == "allen"].sort_values("freq_hz")
+
+    def at(part: pd.DataFrame, hz: float) -> float:
+        return float(np.interp(hz, part["freq_hz"], part["psd"]))
+
+    ratio = (at(allen, 500) / at(allen, 10)) / (at(ibl, 500) / at(ibl, 10))
+    ax.annotate(
+        f"{ratio:.0f}× apart at 500 Hz:\nIBL band-passes at 0.5–300 Hz,\nAllen does not",
+        xy=(180, 3e-7),
+        fontsize=8,
+        ha="center",
+        color="#333",
+    )
+    ax.set_xlabel("frequency (Hz)", fontsize=9)
+    ax.set_ylabel("mean power (per-chunk normalised units)", fontsize=8.5)
+    ax.set_title("The two labs' recordings agree below 100 Hz and not above it", fontsize=9.5)
+    ax.legend(fontsize=8, frameon=False)
+    ax.tick_params(labelsize=8)
+    ax.grid(alpha=0.25, which="both")
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", type=Path, default=Path("results/baselines"))
@@ -309,10 +359,16 @@ def main() -> None:
     parser.add_argument("--abstention", type=Path, default=Path("results/abstention"))
     parser.add_argument("--postprocess", type=Path, default=Path("results/postprocess"))
     parser.add_argument("--position", type=Path, default=Path("results/position"))
+    parser.add_argument("--spectra", type=Path, default=Path("results/spectra"))
     parser.add_argument("--view", default="4class")
     args = parser.parse_args()
 
     folds = pd.read_csv(args.results / "folds.csv")
+    spectra_path = args.spectra / "mean_psd.csv"
+    if spectra_path.exists():
+        print("wrote", spectra_figure(pd.read_csv(spectra_path), args.out / "spectra.png"))
+    else:
+        print(f"no spectra under {args.spectra}; skipping that panel")
     print("wrote", baseline_figure(folds, args.out / "baselines.png", view=args.view))
 
     discriminator_path = args.discriminator / "folds.csv"
